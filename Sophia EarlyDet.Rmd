@@ -1,0 +1,49 @@
+---
+title: "Sophia Early Detection"
+author: "Robin Myte"
+date: "16 augusti 2016"
+output: html_document
+---
+
+```{r,echo=FALSE,message=FALSE}
+
+######### Packages RUN ########################### 
+library(cluster)
+library(Hmisc)
+library(FactoMineR)
+library("bnlearn")
+library("Rgraphviz")
+library(mgcv)
+library(car)
+library(boot)
+library(NMF)
+library(gdata)
+library(gplots)
+library(xlsx)
+library(HardyWeinberg)
+library(ggm)
+library(survival)
+library(KMsurv)
+library(rms)
+library(dplyr)
+library(Rgraphviz)
+library(forestplot)
+library(corrplot)
+library(reshape)
+library(ENmix)
+source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
+source("~/Dropbox/Documents/JOBB ONKO/R/confadjust.R")
+source("~/Dropbox/Documents/JOBB ONKO/R/summ.R")
+source("~/Dropbox/Documents/JOBB ONKO/R/RD quartiles.R")
+source('~/Dropbox/Documents/JOBB ONKO/R/table_myte.R')
+source('~/Dropbox/Documents/JOBB ONKO/R/subtype clog.R')
+
+
+
+
+```
+
+```{r setup,include=FALSE}
+knitr::opts_chunk$set(dev = 'pdf')
+
+```
