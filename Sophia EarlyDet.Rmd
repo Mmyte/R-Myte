@@ -31,6 +31,9 @@ library(forestplot)
 library(corrplot)
 library(reshape)
 library(ENmix)
+library(gdata)                
+
+#Functions
 source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
 source("~/Dropbox/Documents/JOBB ONKO/R/confadjust.R")
 source("~/Dropbox/Documents/JOBB ONKO/R/summ.R")
@@ -38,12 +41,61 @@ source("~/Dropbox/Documents/JOBB ONKO/R/RD quartiles.R")
 source('~/Dropbox/Documents/JOBB ONKO/R/table_myte.R')
 source('~/Dropbox/Documents/JOBB ONKO/R/subtype clog.R')
 
+#Import data
+p.inflam = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/NPX and linear_INF.xlsx",
+                            rows=1:267,
+                           sheet=1, 
+                           skipEmptyRows=FALSE)
+#p.inflam <- p.inflam[1:266,]
+p.onc = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/NPX and linear_ONCII.xlsx",
+                           rows=1:270,
+                          sheet=1, 
+                           skipEmptyRows=FALSE)
+#p.onc <- p.onc[1:269,]
+phen = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/phenotypdata.xlsx",
+                           sheet=1, 
+                           skipEmptyRows=FALSE)
 
+#merge
+phen["id"] <- phen$pat_code
+p.inflam["id"] <- as.numeric(p.inflam$NPX)
+p.onc["id"] <- as.numeric(p.onc$NPX)
+#
+datx <- merge(p.inflam,p.onc,by="id")
+dat1 <- merge(phen,datx,by="id")
+
+#Borttagna flagged prover: (11 stycken), stämmer överrens med OLINKs lista. 
+phen[!(phen$id %in% dat1$id),"pat_code"]
+
+#ta bort variabler
+dat1 <- select(dat1,-contains("NPX")) %>%
+        select(-contains("Flagged"))
+
+#Samma variabler i onc och infl panel?
+on <- names(p.onc)[2:93]
+inf <- names(p.inflam)[2:91]
+on <- substr(on,5,nchar(on))
+inf <- substr(inf,5,nchar(inf))
+
+inf[inf %in% on]
+on[on %in% inf]
+
+View(select(dat1,contains("VEGF")))
+View(select(dat1,contains("HGF")))
+
+s```
+
+
+
+
+
+Descriptives:
+```{r,echo=F}
+summary(dat1)
+glimpse(dat1)
 
 
 ```
 
-```{r setup,include=FALSE}
-knitr::opts_chunk$set(dev = 'pdf')
 
-```
+
