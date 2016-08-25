@@ -1,0 +1,1570 @@
+---
+title: "B6-markers and CRC risk"
+author: "Robin Myte"
+date: "11 feb 2016"
+output: pdf_document
+---
+#Results for B6-manuscript, Gylling et al. 
+
+```{r,include=F}
+
+######### Get data ########################### 
+setwd("~/Documents/DATA-filer/CRC data mod")
+load("~/Documents/DATA-filer/CRC data mod/crc2016.RData")
+library(Hmisc,quietly=T)
+library(FactoMineR,quietly=T)
+library(bnlearn,quietly=T)
+library(mgcv,quietly=T)
+library(car,quietly=T)
+library(corrplot,quietly=T)
+library(boot,quietly=T)
+library(gdata,quietly=T)
+library(gplots,quietly=T)
+library(xlsx,quietly=T)
+library(HardyWeinberg,quietly=T)
+library(survival,quietly=T)
+library(rms,quietly=T)
+library(dplyr,quietly=T)
+library(ggplot2,quietly=T)
+library(gridExtra)
+library(gtable)
+library(rms)
+library(ggm)
+######### Functions ########################### 
+source('~/Documents/JOBB ONKO/R local/myround.R')
+source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
+source("~/Dropbox/Documents/JOBB ONKO/R/confadjust.R")
+source("~/Dropbox/Documents/JOBB ONKO/R/summ.R")
+source('~/Dropbox/Documents/JOBB ONKO/R/table_myte.R')
+source('~/Dropbox/Documents/JOBB ONKO/R/subtype clog.R')
+source('~/Dropbox/Documents/JOBB ONKO/R/myround.R')
+######### New variables ########################### 
+crc["plp.s"] <- scale(log(crc$plpd))
+crc["hkxa.s"] <- scale(log(crc$hkxa))
+crc["par.s"] <- scale(log(crc$b6ratio))
+crc["spfolatef.s"] <- scale(log(crc$spfolatef))
+crc["ribod.s"] <- scale(log(crc$ribod))
+crc["cobf.s"] <- scale(log(crc$cobf))
+crc["plp4.n"] <- as.numeric(crc$plpd4)
+crc["hkxa4.n"] <- as.numeric(crc$hkxa4)
+crc["par4.n"] <- as.numeric(crc$b6ratio4)
+crc["neoptd.s"] <- scale(log(crc$neoptd))
+crc["plp2"] <- cut(crc$plpd,breaks=c(0,20,10000),labels=c(1,0));crc$plp2 <- relevel(crc$plp2,ref="0")
+crc["agedia"] <- crc$age+(crc$dyear-crc$pyear)
+crc["case"] <- factor(crc$fall,labels=c("Control","Case"))
+
+
+#clearence quartiles
+c1 <- quantile(crc[crc$fall==0&crc$gender==1,]$clearence,probs=seq(0,1,1/4),na.rm=T);c2 <- quantile(crc[crc$fall==0&crc$gender==2,]$clearence,probs=seq(0,1,1/4),na.rm=T)
+
+crc["clear4"] <- ifelse(crc$gender==1,cut(crc$clearence,breaks=c(0,c1[2],c1[3],c1[4],10000),labels=c(1:4)),cut(crc$clearence,breaks=c(0,c2[2],c2[3],c2[4],10000),labels=c(1:4)))
+crc$clear4 <- as.factor(crc$clear4) 
+levels(crc$clear4) <- c(1,2,3,4,9999)
+crc[which(is.na(crc$clear4)==T),"clear4"] <- "9999"
+
+crc["fu.controls"] <- crc$datdiff_year
+for(i in 1:nrow(crc)){
+  if(crc[i,]$fall==0){
+  crc[i,"fu.controls"] <- crc[crc$set==crc[i,"set"]&crc$fall==1,"fu.controls"]
+  }else{}
+}
+
+
+```
+
+```{r setup,include=FALSE}
+knitr::opts_chunk$set(dev = 'pdf')
+
+```
+
+##Descriptive statistics for B6-markers
+
+Tables:
+```{r}
+tabs(crc,x="fall",y="plpd4")$table
+tabs(crc,x="fall",y="hkxa4")$table
+tabs(crc,x="fall",y="b6ratio4")$table
+
+mm <- crc[,c("fall","plpd","hkxa","b6ratio","pld","pa","hkd","xad","folasum1","b2sum1","b6sum1","b12sum1","alkosum1","bmi","clearence","alkosum1","g2_merge","g6_merge","neoptd","ktratio","spfolatef","ribod","cobf")]
+mm[mm=="7777"] <- NA
+mm[mm=="9999"] <- NA
+mm$g2_merge <- as.numeric(mm$g2_merge)
+mm$g6_merge <- as.numeric(mm$g6_merge)
+mm$clearence <- mm$clearence/1.73
+
+m <- matrix(ncol=6,nrow=ncol(mm)-1)
+j=0
+for(i in names(mm)[-1]){
+  j=j+1
+  t <- tapply(mm[,i],mm$fall,function(x) quantile(x,probs=c(0.5,0.05,0.95),na.rm=T))
+  t <- round(unlist(t),3)
+  test <- wilcox.test(mm[,i]~mm$fall) 
+  complete <- na.omit(mm[,c(i,"fall")])
+  tabl <- table(complete$fall)
+  if(t[4]>=100){
+    m[j,] <- c(i,tabl[2],sprintf("%.0f (%.0f-%.0f)",t[4],t[5],t[6]),tabl[1],sprintf("%.0f (%.0f-%.0f)",t[1],t[2],t[3]),round(test$p.value,4))
+  }else if(t[4]<100&t[4]>1){
+    m[j,] <- c(i,tabl[2],sprintf("%.1f (%.1f-%.1f)",t[4],t[5],t[6]),tabl[1],sprintf("%.1f (%.1f-%.1f)",t[1],t[2],t[3]),round(test$p.value,4))
+  }else{
+    m[j,] <- c(i,tabl[2],sprintf("%.2f (%.2f-%.2f)",t[4],t[5],t[6]),tabl[1],sprintf("%.2f (%.2f-%.2f)",t[1],t[2],t[3]),round(test$p.value,4))
+  }
+}
+
+m
+write.xlsx(m, file ="B6medians.xlsx",sheetName = "TestSheet", row.names = FALSE)
+
+```
+
+Continous levels in cases/controls:
+  
+Spearman correlations and matrix scatter plot:
+```{r,echo=FALSE}
+#correlations between markers:
+corre <- crc[,c("fall","plpd","hkxa","b6ratio","clearence","spfolatef","ribod","cobf")]
+corre[,!names(corre) %in% c("fall","clearence","bmi")] <- log(corre[,!names(corre) %in% c("fall","clearence","bmi")])
+names(corre) <- c("fall","PLP","HK:XA","PAr","eGFR","Folate","Riboflavin","Cobalamin")
+summary(corre)
+corre <- na.omit(corre)
+#corre <- subset(corre,fall==0)
+corre$eGFR <- corre$eGFR/1.73
+cor0 <- cor(corre[,-1],method="spearman")
+
+#Scatterplotmatrix
+
+panel.cor <- function(x, y, digits = 2, cex.cor, ...)
+{
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(0, 1, 0, 1))
+  # correlation coefficient
+  r <- cor(x, y,method="spearman",use="complete")
+  txt <- format(c(r, 0.123456789), digits = digits)[1]
+  txt <- paste("r= ", txt, sep = "")
+  text(0.5, 0.6, txt)
+  
+  # p-value calculation
+  p <- cor.test(x, y)$p.value
+  txt2 <- format(c(p, 0.123456789), digits = digits)[1]
+  txt2 <- paste("p= ", txt2, sep = "")
+  if(p<0.01) txt2 <- paste("p= ", "<0.01", sep = "")
+  text(0.5, 0.4, txt2)
+}
+
+#Diagonal histograms
+panel.hist <- function(x, ...)
+{
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(usr[1:2], 0, 1.5) )
+  h <- hist(x, plot = FALSE)
+  breaks <- h$breaks; nB <- length(breaks)
+  y <- h$counts; y <- y/max(y)
+  rect(breaks[-nB], 0, breaks[-1], y, ...)
+}
+
+
+#plot with pairs, 
+#data = data.frame with numeric variables
+pairs(corre[,-1], diag.panel = panel.hist, upper.panel = panel.smooth,lower.panel = panel.cor,pch=19,cex=0.2,cex.labels=1.2, gap=0.5,col.smooth="black",col="gray")
+
+```
+
+
+Partial correlations, including age, and year
+```{r,echo=F}
+(cor2 <- parcor(var(corre[,1:8])))
+```
+
+With GGPLOT
+
+```{r,echo=F}
+corre <- crc[,c("fall","plpd","hkxa","b6ratio","ktratio","neoptd","spfolatef","ribod","cobf","age","bmi3m","smoke2","alc3")]
+corre[,!names(corre) %in% c("fall","age","bmi3m","smoke2","alc3")] <- log(corre[,!names(corre) %in% c("fall","age","bmi3m","smoke2","alc3")])
+#names(corre) <- c("fall","PLP","HK:XA","PAr","KTr","Neopterin","Folate","Riboflavin","Cobalamin","Age","BMI","Smoking","Alcohol intake")
+summary(corre)
+#corre[corre=="9999"] <- NA
+corre <- na.omit(corre)
+
+g1 <- ggplot(corre,aes(y=plpd,x=bmi3m,fill=bmi3m))+
+  geom_boxplot(outlier.shape=NA) +
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.5)+
+  theme_bw()+ylab("log-PLP")+xlab("BMI")+
+  scale_fill_manual(values=c("dodgerblue","firebrick","green","gray"))
+  
+g2 <- ggplot(corre,aes(y=hkxa,x=bmi3m,fill=bmi3m))+
+  geom_boxplot(outlier.shape=NA) +
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.5)+
+  theme_bw()+ylab("log-HK:XA")+xlab("BMI")+
+  scale_fill_manual(values=c("dodgerblue","firebrick","green","gray"))
+  
+g3 <- ggplot(corre,aes(y=b6ratio,x=bmi3m,fill=bmi3m))+
+  geom_boxplot(outlier.shape=NA) +
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.5)+
+  theme_bw()+ylab("log-PAr")+xlab("BMI")+
+  scale_fill_manual(values=c("dodgerblue","firebrick","green","gray"))
+  
+g4 <- ggplot(corre,aes(y=plpd,x=smoke2,fill=smoke2))+
+  geom_boxplot(outlier.shape=NA) +
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.5)+
+  theme_bw()+ylab("log-PLP")+xlab("Smoking status")+
+  scale_fill_manual(values=c("dodgerblue","firebrick","green"))
+  
+g5 <- ggplot(corre,aes(y=hkxa,x=smoke2,fill=smoke2))+
+  geom_boxplot(outlier.shape=NA) +
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.5)+
+  theme_bw()+ylab("log-HK:XA")+xlab("Smoking status")+
+  scale_fill_manual(values=c("dodgerblue","firebrick","green"))
+  
+g6 <- ggplot(corre,aes(y=b6ratio,x=smoke2,fill=smoke2))+
+  geom_boxplot(outlier.shape=NA) +
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.5)+
+  theme_bw()+ylab("log-PAr")+xlab("Smoking status")+
+  scale_fill_manual(values=c("dodgerblue","firebrick","green"))
+
+g7 <- ggplot(corre,aes(y=plpd,x=alc3,fill=alc3))+
+  geom_boxplot(outlier.shape=NA) +
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.5)+
+  theme_bw()+ylab("log-PLP")+xlab("Smoking status")+
+  scale_fill_manual(values=c("dodgerblue","firebrick","green","gray"))
+  
+g8 <- ggplot(corre,aes(y=hkxa,x=alc3,fill=alc3))+
+  geom_boxplot(outlier.shape=NA) +
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.5)+
+  theme_bw()+ylab("log-HK:XA")+xlab("Alcohol intake")+
+  scale_fill_manual(values=c("dodgerblue","firebrick","green","gray"))
+  
+g9 <- ggplot(corre,aes(y=b6ratio,x=alc3,fill=alc3))+
+  geom_boxplot(outlier.shape=NA) +
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.5)+
+  theme_bw()+ylab("log-PAr")+xlab("Alcohol intake")+
+  scale_fill_manual(values=c("dodgerblue","firebrick","green","gray"))
+
+
+grid.arrange(g1,g2,g3,g4,g5,g6,g7,g8,g9,ncol=3,nrow=3)
+```
+
+
+Relation between potential confounders and B6 markers
+```{r,echo=F}
+
+#comtinous PLP
+mm <- crc[,c("plpd4","hkxa","b6ratio","clearence","bmi","alkosum1","folasum1","b2sum1","b6sum1","b12sum1","g2_merge","g6_merge","neoptd","ktratio")]
+mm[mm=="7777"] <- NA
+mm[mm=="9999"] <- NA
+mm$g2_merge <- as.numeric(mm$g2_merge)
+mm$g6_merge <- as.numeric(mm$g6_merge)
+
+m <- matrix(ncol=6,nrow=ncol(mm)-1)
+j=0
+for(i in names(mm)[-1]){
+  j=j+1
+  t <- tapply(mm[,i],mm$plpd4,function(x) quantile(x,probs=c(0.5,0.25,0.75),na.rm=T))
+  t <- round(unlist(t),3)
+  test <- aov(mm[,i]~mm$plpd4) 
+  test <- summary(test)[[1]][["Pr(>F)"]][1]
+  if(t[4]>=100){
+    m[j,] <- c(i,sprintf("%.0f (%.0f-%.0f)",t[1],t[2],t[3]),sprintf("%.0f (%.0f-%.0f)",t[4],t[5],t[6]),sprintf("%.0f (%.0f-%.0f)",t[7],t[8],t[9]),sprintf("%.0f (%.0f-%.0f)",t[10],t[11],t[12]),round(test,5))
+  }else if(t[4]<100&t[4]>1){
+    m[j,] <- c(i,sprintf("%.1f (%.1f-%.1f)",t[1],t[2],t[3]),sprintf("%.1f (%.1f-%.1f)",t[4],t[5],t[6]),sprintf("%.1f (%.1f-%.1f)",t[7],t[8],t[9]),sprintf("%.1f (%.1f-%.1f)",t[10],t[11],t[12]),round(test,5))
+  }else{
+    m[j,] <- c(i,sprintf("%.2f (%.2f-%.2f)",t[1],t[2],t[3]),sprintf("%.2f (%.2f-%.2f)",t[4],t[5],t[6]),sprintf("%.2f (%.2f-%.2f)",t[7],t[8],t[9]),sprintf("%.2f (%.2f-%.2f)",t[10],t[11],t[12]),round(test,5))
+  }
+}
+
+
+
+#smoking
+mm <- crc[,c("smoke2","plpd","hkxa","b6ratio")]
+mm[mm=="9999"] <- NA
+
+m1 <- matrix(ncol=6,nrow=ncol(mm)-1)
+j=0
+for(i in names(mm)[-1]){
+  j=j+1
+  t <- tapply(mm[,i],mm[,1],function(x) quantile(x,probs=c(0.5,0.05,0.95),na.rm=T))
+  t <- round(unlist(t),3)
+  test <- aov(log(mm[,i])~mm[,1]) 
+  test <- summary(test)[[1]][["Pr(>F)"]][1]
+  if(t[4]>=100){
+    m1[j,] <- c(i,sprintf("%.0f (%.0f-%.0f)",t[1],t[2],t[3]),sprintf("%.0f (%.0f-%.0f)",t[4],t[5],t[6]),sprintf("%.0f (%.0f-%.0f)",t[7],t[8],t[9]),sprintf("%.0f (%.0f-%.0f)",t[10],t[11],t[12]),round(test,5))
+  }else if(t[4]<100&t[4]>1){
+    m1[j,] <- c(i,sprintf("%.1f (%.1f-%.1f)",t[1],t[2],t[3]),sprintf("%.1f (%.1f-%.1f)",t[4],t[5],t[6]),sprintf("%.1f (%.1f-%.1f)",t[7],t[8],t[9]),sprintf("%.1f (%.1f-%.1f)",t[10],t[11],t[12]),round(test,5))
+  }else{
+    m1[j,] <- c(i,sprintf("%.2f (%.2f-%.2f)",t[1],t[2],t[3]),sprintf("%.2f (%.2f-%.2f)",t[4],t[5],t[6]),sprintf("%.2f (%.2f-%.2f)",t[7],t[8],t[9]),sprintf("%.2f (%.2f-%.2f)",t[10],t[11],t[12]),round(test,5))
+  }
+}
+m1
+
+#BMI
+mm <- crc[,c("bmi3m","plpd","hkxa","b6ratio")]
+mm[mm=="9999"] <- NA
+
+m2 <- matrix(ncol=6,nrow=ncol(mm)-1)
+j=0
+for(i in names(mm)[-1]){
+  j=j+1
+  t <- tapply(mm[,i],mm[,1],function(x) quantile(x,probs=c(0.5,0.05,0.95),na.rm=T))
+  t <- round(unlist(t),3)
+  test <- aov(log(mm[,i])~mm[,1]) 
+  test <- summary(test)[[1]][["Pr(>F)"]][1]
+  if(t[4]>=100){
+    m2[j,] <- c(i,sprintf("%.0f (%.0f-%.0f)",t[1],t[2],t[3]),sprintf("%.0f (%.0f-%.0f)",t[4],t[5],t[6]),sprintf("%.0f (%.0f-%.0f)",t[7],t[8],t[9]),sprintf("%.0f (%.0f-%.0f)",t[10],t[11],t[12]),round(test,5))
+  }else if(t[4]<100&t[4]>1){
+    m2[j,] <- c(i,sprintf("%.1f (%.1f-%.1f)",t[1],t[2],t[3]),sprintf("%.1f (%.1f-%.1f)",t[4],t[5],t[6]),sprintf("%.1f (%.1f-%.1f)",t[7],t[8],t[9]),sprintf("%.1f (%.1f-%.1f)",t[10],t[11],t[12]),round(test,5))
+  }else{
+    m2[j,] <- c(i,sprintf("%.2f (%.2f-%.2f)",t[1],t[2],t[3]),sprintf("%.2f (%.2f-%.2f)",t[4],t[5],t[6]),sprintf("%.2f (%.2f-%.2f)",t[7],t[8],t[9]),sprintf("%.2f (%.2f-%.2f)",t[10],t[11],t[12]),round(test,5))
+  }
+}
+m2
+
+#Alcohol
+mm <- crc[,c("alc3","plpd","hkxa","b6ratio")]
+mm[mm=="9999"] <- NA
+
+m3 <- matrix(ncol=6,nrow=ncol(mm)-1)
+j=0
+for(i in names(mm)[-1]){
+  j=j+1
+  t <- tapply(mm[,i],mm[,1],function(x) quantile(x,probs=c(0.5,0.05,0.95),na.rm=T))
+  t <- round(unlist(t),3)
+  test <- aov(log(mm[,i])~mm[,1]) 
+  test <- summary(test)[[1]][["Pr(>F)"]][1]
+  if(t[4]>=100){
+    m3[j,] <- c(i,sprintf("%.0f (%.0f-%.0f)",t[1],t[2],t[3]),sprintf("%.0f (%.0f-%.0f)",t[4],t[5],t[6]),sprintf("%.0f (%.0f-%.0f)",t[7],t[8],t[9]),sprintf("%.0f (%.0f-%.0f)",t[10],t[11],t[12]),round(test,5))
+  }else if(t[4]<100&t[4]>1){
+    m3[j,] <- c(i,sprintf("%.1f (%.1f-%.1f)",t[1],t[2],t[3]),sprintf("%.1f (%.1f-%.1f)",t[4],t[5],t[6]),sprintf("%.1f (%.1f-%.1f)",t[7],t[8],t[9]),sprintf("%.1f (%.1f-%.1f)",t[10],t[11],t[12]),round(test,5))
+  }else{
+    m3[j,] <- c(i,sprintf("%.2f (%.2f-%.2f)",t[1],t[2],t[3]),sprintf("%.2f (%.2f-%.2f)",t[4],t[5],t[6]),sprintf("%.2f (%.2f-%.2f)",t[7],t[8],t[9]),sprintf("%.2f (%.2f-%.2f)",t[10],t[11],t[12]),round(test,5))
+  }
+}
+m3
+
+#recreational
+mm <- crc[,c("g6_merge","plpd","hkxa","b6ratio")]
+mm[mm=="9999"] <- NA
+
+m4 <- matrix(ncol=7,nrow=ncol(mm)-1)
+j=0
+for(i in names(mm)[-1]){
+  j=j+1
+  t <- tapply(mm[,i],mm[,1],function(x) quantile(x,probs=c(0.5,0.05,0.95),na.rm=T))
+  t <- round(unlist(t),3)
+  test <- aov(log(mm[,i])~mm[,1]) 
+  test <- summary(test)[[1]][["Pr(>F)"]][1]
+  if(t[4]>=100){
+    m4[j,] <- c(i,sprintf("%.0f (%.0f-%.0f)",t[1],t[2],t[3]),sprintf("%.0f (%.0f-%.0f)",t[4],t[5],t[6]),sprintf("%.0f (%.0f-%.0f)",t[7],t[8],t[9]),sprintf("%.0f (%.0f-%.0f)",t[10],t[11],t[12]),sprintf("%.0f (%.0f-%.0f)",t[13],t[14],t[15]),round(test,5))
+  }else if(t[4]<100&t[4]>1){
+    m4[j,] <- c(i,sprintf("%.1f (%.1f-%.1f)",t[1],t[2],t[3]),sprintf("%.1f (%.1f-%.1f)",t[4],t[5],t[6]),sprintf("%.1f (%.1f-%.1f)",t[7],t[8],t[9]),sprintf("%.1f (%.1f-%.1f)",t[10],t[11],t[12]),sprintf("%.1f (%.1f-%.1f)",t[13],t[14],t[15]),round(test,5))
+  }else{
+    m4[j,] <- c(i,sprintf("%.2f (%.2f-%.2f)",t[1],t[2],t[3]),sprintf("%.2f (%.2f-%.2f)",t[4],t[5],t[6]),sprintf("%.2f (%.2f-%.2f)",t[7],t[8],t[9]),sprintf("%.2f (%.2f-%.2f)",t[10],t[11],t[12]),sprintf("%.2f (%.2f-%.2f)",t[13],t[14],t[15]),round(test,5))
+  }
+}
+m4
+
+#occupational
+mm <- crc[,c("g2_merge","plpd","hkxa","b6ratio")]
+mm[mm=="9999"] <- NA
+
+m5 <- matrix(ncol=7,nrow=ncol(mm)-1)
+j=0
+for(i in names(mm)[-1]){
+  j=j+1
+  t <- tapply(mm[,i],mm[,1],function(x) quantile(x,probs=c(0.5,0.05,0.95),na.rm=T))
+  t <- round(unlist(t),3)
+  test <- aov(log(mm[,i])~mm[,1]) 
+  test <- summary(test)[[1]][["Pr(>F)"]][1]
+  if(t[4]>=100){
+    m5[j,] <- c(i,sprintf("%.0f (%.0f-%.0f)",t[1],t[2],t[3]),sprintf("%.0f (%.0f-%.0f)",t[4],t[5],t[6]),sprintf("%.0f (%.0f-%.0f)",t[7],t[8],t[9]),sprintf("%.0f (%.0f-%.0f)",t[10],t[11],t[12]),sprintf("%.0f (%.0f-%.0f)",t[13],t[14],t[15]),round(test,5))
+  }else if(t[4]<100&t[4]>1){
+    m5[j,] <- c(i,sprintf("%.1f (%.1f-%.1f)",t[1],t[2],t[3]),sprintf("%.1f (%.1f-%.1f)",t[4],t[5],t[6]),sprintf("%.1f (%.1f-%.1f)",t[7],t[8],t[9]),sprintf("%.1f (%.1f-%.1f)",t[10],t[11],t[12]),sprintf("%.1f (%.1f-%.1f)",t[13],t[14],t[15]),round(test,5))
+  }else{
+    m5[j,] <- c(i,sprintf("%.2f (%.2f-%.2f)",t[1],t[2],t[3]),sprintf("%.2f (%.2f-%.2f)",t[4],t[5],t[6]),sprintf("%.2f (%.2f-%.2f)",t[7],t[8],t[9]),sprintf("%.2f (%.2f-%.2f)",t[10],t[11],t[12]),sprintf("%.2f (%.2f-%.2f)",t[13],t[14],t[15]),round(test,5))
+  }
+}
+m5
+
+write.xlsx(cbind(m1,m2,m3,m4,m5), file ="conf.medians.xlsx",sheetName = "TestSheet", row.names = FALSE)
+
+
+```
+
+
+
+##B6-markers in relation to CRC risk
+
+###Conditional logistic regression models
+ORs:
+```{r, echo=FALSE}
+(plp <- adjust(var="plpd4",data=crc,adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+(hkxa <- adjust(var="hkxa4",data=crc,adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE))
+(par <- adjust(var="b6ratio4",data=crc,adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE))
+
+#PLP deficent
+crc$plp2 <- relevel(crc$plp2,ref="1")
+(plp.d <- adjust(var="plp2",data=crc,adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+
+
+#indiidual markers for ratios:
+(pl <- adjust(var="pld4",data=crc,adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+(pa <- adjust(var="pa4",data=crc,adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+(hk <- adjust(var="hkd4",data=crc,adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+(xa <- adjust(var="xad4",data=crc,adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+
+
+
+
+```
+Per 1SD OR-estimates and P-trend, with standardized log-trans variables. mean and SD of log-transformed variables were:
+```{r}
+m <- matrix(nrow=3,ncol=2,NA)
+m[1,] <- c(mean(log(crc$plpd),na.rm=T),sd(log(crc$plpd),na.rm=T))
+m[2,] <- c(mean(log(crc$hkxa),na.rm=T),sd(log(crc$hkxa),na.rm=T))
+m[3,] <- c(mean(log(crc$b6ratio),na.rm=T),sd(log(crc$b6ratio),na.rm=T))
+m
+```
+
+Per SD OR estimtes:
+
+```{r,echo=F}
+
+#Per SD-change
+
+(plp.sd <- adjust(data=crc,var="plp.s",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+(hkxa.sd <- adjust(data=crc,var="hkxa.s",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+(par.sd <- adjust(data=crc,var="par.s",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+neoptd",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+```
+
+Trend estimates from quartiles as numeric
+```{r}
+
+plp.pt <- adjust(data=crc,var="plp4.n",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE);(plp.pt <- round(c(plp.pt$Model1[6],plp.pt$Model2[6],plp.pt$Model3[6]),3))
+hkxa.pt <- adjust(data=crc,var="hkxa4.n",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE);(hkxa.pt <- round(c(hkxa.pt$Model1[6],hkxa.pt$Model2[6],hkxa.pt$Model3[6]),3))
+par.pt <- adjust(data=crc,var="par4.n",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE);(par.pt <- round(c(par.pt$Model1[6],par.pt$Model2[6],par.pt$Model3[6]),3))
+
+```
+
+
+Forrestplots for ORs:
+```{r,echo=F,fig.width = 4, fig.height = 4}
+library(forestplot)
+#Figure 1 PLP HK:XA PAr 
+t2 <- c(NA,"PLP","Q1 (<28.0)","Q2 (28.0-38.2)","Q3 (38.2-51.4)","Q4 (>51.4)","P-trend:","Per 1SD change","B-6 deficient (PLP<20)","B-6 sufficient (PLP>20)","HK:XA","Q1 (<2.0) ","Q2 (2.0-2.7)","Q3 (2.7-3.7)","Q4 (>3.7)","P-trend","Per 1SD change","PAr","Q1 (<0.35) ","Q2 (0.35-0.44)","Q3 (0.44-0.57)","Q4 (>0.57)","P-trend","Per 1SD change")
+t3 <- c("Cases/\ncontrols",NA,paste(table(crc$plpd4,crc$fall)[1:4,2],"/",table(crc$plpd4,crc$fall)[1:4,1],sep=""),NA,NA,paste(table(crc$plp2,crc$fall)[1:2,2],"/",table(crc$plp2,crc$fall)[1:2,1],sep=""),NA,
+        paste(table(crc$hkxa4,crc$fall)[1:4,2],"/",table(crc$hkxa4,crc$fall)[1:4,1],sep=""),NA,NA,NA,
+        paste(table(crc$b6ratio4,crc$fall)[1:4,2],"/",table(crc$b6ratio4,crc$fall)[1:4,1],sep=""),NA,NA)
+
+#t4 <- rep("",34)
+t4 <- c("OR Model 1",NA,"ref",
+       sprintf("%.2f (%.2f,%.2f)", plp$Model1[1:3,1], plp$Model1[1:3,2],plp$Model1[1:3,3]) ,plp.pt[1],
+       sprintf("%.2f (%.2f,%.2f)", plp.sd$Model1[1], plp.sd$Model1[2],plp.sd$Model1[3]),"ref",sprintf("%.2f (%.2f,%.2f)", plp.d$Model1[1], plp.d$Model1[2],plp.d$Model1[3]),
+       NA,"ref",
+        sprintf("%.2f (%.2f,%.2f)", hkxa$Model1[1:3,1], hkxa$Model1[1:3,2],hkxa$Model1[1:3,3]) ,hkxa.pt[1],sprintf("%.2f (%.2f,%.2f)", hkxa.sd$Model1[1], hkxa.sd$Model1[2],hkxa.sd$Model1[3]),NA,"ref",
+       sprintf("%.2f (%.2f,%.2f)", par$Model1[1:3,1], par$Model1[1:3,2],par$Model1[1:3,3]) ,par.pt[1],sprintf("%.2f (%.2f,%.2f)", par.sd$Model1[1], par.sd$Model1[2],par.sd$Model1[3]))
+
+t5 <- c("OR Model 2",NA,"ref",
+       sprintf("%.2f (%.2f,%.2f)", plp$Model2[1:3,1], plp$Model2[1:3,2],plp$Model2[1:3,3]) ,plp.pt[1],sprintf("%.2f (%.2f,%.2f)", plp.sd$Model2[1], plp.sd$Model2[2],plp.sd$Model2[3]),"ref",sprintf("%.2f (%.2f,%.2f)", plp.d$Model2[1], plp.d$Model2[2],plp.d$Model2[3]),
+       NA,"ref",
+        sprintf("%.2f (%.2f,%.2f)", hkxa$Model2[1:3,1], hkxa$Model2[1:3,2],hkxa$Model2[1:3,3]) ,hkxa.pt[1],sprintf("%.2f (%.2f,%.2f)", hkxa.sd$Model2[1], hkxa.sd$Model2[2],hkxa.sd$Model2[3]),NA,"ref",
+       sprintf("%.2f (%.2f,%.2f)", par$Model2[1:3,1], par$Model2[1:3,2],par$Model2[1:3,3]) ,par.pt[1],sprintf("%.2f (%.2f,%.2f)", par.sd$Model2[1], par.sd$Model2[2],par.sd$Model2[3]))
+
+
+t6 <- c("OR Model 3",NA,"ref",
+       sprintf("%.2f (%.2f,%.2f)", plp$Model3[1:3,1], plp$Model3[1:3,2],plp$Model3[1:3,3]) ,plp.pt[1],sprintf("%.2f (%.2f,%.2f)", plp.sd$Model3[1], plp.sd$Model3[2],plp.sd$Model3[3]),"ref",sprintf("%.2f (%.2f,%.2f)", plp.d$Model3[1], plp.d$Model3[2],plp.d$Model3[3]),
+       NA,"ref",
+        sprintf("%.2f (%.2f,%.2f)", hkxa$Model3[1:3,1], hkxa$Model3[1:3,2],hkxa$Model3[1:3,3]) ,hkxa.pt[1],sprintf("%.2f (%.2f,%.2f)", hkxa.sd$Model3[1], hkxa.sd$Model3[2],hkxa.sd$Model3[3]),NA,"ref",
+       sprintf("%.2f (%.2f,%.2f)", par$Model3[1:3,1], par$Model3[1:3,2],par$Model3[1:3,3]) ,par.pt[1],sprintf("%.2f (%.2f,%.2f)", par.sd$Model3[1], par.sd$Model3[2],par.sd$Model3[3]))
+
+
+tabletext<-cbind(t2,t3,t4,t5,t6)
+
+o <- c(NA,NA,0,plp$Model3[1:3,4],NA,plp.sd$Model3[4],0,plp.d$Model3[4],
+       NA,0,hkxa$Model3[1:3,4],NA,hkxa.sd$Model3[4],
+       NA,0,par$Model3[1:3,4],NA,par.sd$Model3[4])
+l <- c(NA,NA,0,plp$Model3[1:3,4]-2*plp$Model3[1:3,5],NA,plp.sd$Model3[4]-2*plp.sd$Model3[5],0,plp.d$Model3[4]-2*plp.d$Model3[5],
+       NA,0,hkxa$Model3[1:3,4]-2*hkxa$Model3[1:3,5],NA,hkxa.sd$Model3[4]-2*hkxa.sd$Model3[5],
+       NA,0,par$Model3[1:3,4]-2*par$Model3[1:3,5],NA,par.sd$Model3[4]-2*par.sd$Model3[5])              
+u <- c(NA,NA,0,plp$Model3[1:3,4]+2*plp$Model3[1:3,5],NA,plp.sd$Model3[4]+2*plp.sd$Model3[5],0,plp.d$Model3[4]+2*plp.d$Model3[5],
+       NA,0,hkxa$Model3[1:3,4]+2*hkxa$Model3[1:3,5],NA,hkxa.sd$Model3[4]+2*hkxa.sd$Model3[5],
+       NA,0,par$Model3[1:3,4]+2*par$Model3[1:3,5],NA,par.sd$Model3[4]+2*par.sd$Model3[5])    
+
+#Utan perSD i forestplotten
+#o <- c(NA,NA,0,plp$Model3[1:3,4],NA,NA,NA,0,hkxa$Model3[1:3,4],NA,NA,NA,0,par$Model3[1:3,4],NA,NA)
+#l <- c(NA,NA,0,plp$Model3[1:3,4]-2*plp$Model3[1:3,5],NA,NA,NA,0,hkxa$Model3[1:3,4]-2*hkxa$Model3[1:3,5],NA,NA,NA,0,par$Model3[1:3,4]-2*par$Model3[1:3,5],NA,NA)           
+#u <- c(NA,NA,0,plp$Model3[1:3,4]+2*plp$Model3[1:3,5],NA,NA,NA,0,hkxa$Model3[1:3,4]+2*hkxa$Model3[1:3,5],NA,NA,NA,0,par$Model3[1:3,4]+2*par$Model3[1:3,5],NA,NA)    
+
+
+
+#Ta bort P-trend
+tabletext <- tabletext[-c(7,16,23),]
+o <- o[-c(7,16,23)]
+l <- l[-c(7,16,23)]
+u <- u[-c(7,16,23)]
+
+sum1 <- rep(FALSE,24)
+sum1[c(1,2,10,16)] <- TRUE
+#exponate 
+o <- exp(o)
+l <- exp(l)
+u <- exp(u)
+
+#Make pic 6*10 inches
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(1, 3)))
+pushViewport(viewport(layout.pos.col = 2))
+forestplot(tabletext[,1:5],align=c(1,1,1),
+          o,
+           l,
+           u,
+           zero = 1,
+           cex = 2,
+           lineheight = "auto",xlog=T,boxsize=0.4,graphwidth=unit(4,"cm"),col=fpColors(zero="black",lines="black"),
+           xlab = "OR Model 3",is.summary = sum1,xticks=c(0.5,0.70,1.0,1.5,2.0))
+
+```
+
+###RD-analysis:
+```{r RD-analysis,echo=F}
+
+source("~/Dropbox/Documents/JOBB ONKO/R/RD quartiles.R")
+print(nu <- Sys.time()) 
+Ptotal <- 769/92619 #endast blod
+crc2 <- crc[,c("fall","set","ui","vi","matchp.ht15","plpd4","age","pyear_num","gender","delproj_def","fasta2","bmi3m","smoke2","g6_merge","g2_merge","alc3","ribod.s","spfolatef.s","cobf.s")]
+crc2 <- na.omit(crc2)
+crc2["treatment"] <- crc2$plpd4
+formula <- "treatment+age+pyear_num+gender+delproj_def+fasta2+bmi3m+smoke2+g6_merge+g2_merge+alc3+ribod.s+spfolatef.s+cobf.s"
+set.seed(22229999);katt1 <- mao(crc2,Ptotal,formula,z=0.975,R=1000,match=1);katt1$ODDS;katt1$RISK 
+crc["treatment"] <- crc$plpd4
+formula <- "treatment+age+pyear_num+gender+delproj_def+fasta2"
+set.seed(22229999);katt2 <- mao(crc,Ptotal,formula,z=0.975,R=1000,match=1);katt2$ODDS;katt2$RISK 
+#c(katt2$ODDS[1:2,1],katt2$RISK[1:2,1])/m1
+#crc["treatment"] <- as.factor(ifelse(crc$betainec3==3,1,ifelse(crc$betainec3==9999,9999,0)));tapply(crc$betainec,crc$treatment,summary);table(crc$treatment,crc$fall)
+crc2 <- crc[,c("fall","set","ui","vi","matchp.ht15","hkxa4","age","pyear_num","gender","delproj_def","fasta2","bmi3m","smoke2","g6_merge","g2_merge","alc3","ribod.s","spfolatef.s","cobf.s")]
+crc2 <- na.omit(crc2)
+crc2["treatment"] <- crc2$hkxa4
+formula <- "treatment+age+pyear_num+gender+delproj_def+fasta2+bmi3m+smoke2+g6_merge+g2_merge+alc3+ribod.s+spfolatef.s+cobf.s"
+set.seed(22229999);katt3 <- mao(crc2,Ptotal,formula,z=0.975,R=1000,match=1);katt3$ODDS;katt3$RISK
+crc["treatment"] <- crc$hkxa4
+formula <- "treatment+age+pyear5+gender+delproj_def+fasta2"
+set.seed(22229999);katt4 <- mao(crc,Ptotal,formula,z=0.975,R=1000,match=1);katt4$ODDS;katt4$RISK
+#c(katt4$ODDS[1:2,1],katt4$RISK[1:2,1])/m1
+#crc["treatment"] <- as.factor(ifelse(crc$dmgc3==3,1,ifelse(crc$dmgc3==9999,9999,0)));tapply(crc$dmgc,crc$treatment,summary);table(crc$treatment,crc$fall)
+crc2 <- crc[,c("fall","set","ui","vi","matchp.ht15","b6ratio4","age","pyear_num","gender","delproj_def","fasta2","bmi3m","smoke2","g6_merge","g2_merge","alc3","ribod.s","spfolatef.s","cobf.s")]
+crc2 <- na.omit(crc2)
+crc2["treatment"] <- crc2$b6ratio4
+formula <- "treatment+age+pyear_num+gender+delproj_def+fasta2+bmi3m+smoke2+g6_merge+g2_merge+alc3+ribod.s+spfolatef.s+cobf.s"
+set.seed(22229999);katt5 <- mao(crc2,Ptotal,formula,z=0.975,R=1000,match=1);katt5$ODDS;katt5$RISK
+formula <- "treatment+age+pyear_num+gender+delproj_def"
+crc["treatment"] <- crc$b6ratio4
+set.seed(22229999);katt6 <- mao(crc,Ptotal,formula,z=0.975,R=1000,match=1);katt6$ODDS;katt6$RISK
+print(Sys.time()-nu) 
+
+################
+rd <- matrix(ncol=6,nrow=9,NA)
+colnames(rd) <- c("RD adj","CI-N low","CI-N high","RD crude","CI-N low","CI-N high")
+rownames(rd) <- rep(c("PLP","HKXA","PAr"),each=3)
+rd[1,] <- cbind(katt1$RISK[1,1:3],katt2$RISK[1,1:3]);rd[2,] <- cbind(katt1$RISK[2,1:3],katt2$RISK[2,1:3]);rd[3,] <- cbind(katt1$RISK[3,1:3],katt2$RISK[3,1:3])
+rd[4,] <- cbind(katt3$RISK[1,1:3],katt4$RISK[1,1:3]);rd[5,] <- cbind(katt3$RISK[2,1:3],katt4$RISK[2,1:3]);rd[6,] <- cbind(katt3$RISK[3,1:3],katt4$RISK[3,1:3])
+rd[7,] <- cbind(katt5$RISK[1,1:3],katt6$RISK[1,1:3]);rd[8,] <- cbind(katt5$RISK[2,1:3],katt6$RISK[2,1:3]);rd[9,] <- cbind(katt5$RISK[3,1:3],katt6$RISK[3,1:3])
+rd <- rd*1000
+rd <- round(rd,0)
+
+mrd <- matrix(ncol=2,nrow=nrow(rd),NA)
+mrd[,1] <- paste(rd[,1]," (",rd[,2],",",rd[,3],")",sep="")
+mrd[,2] <- paste(rd[,4]," (",rd[,5],",",rd[,6],")",sep="")
+rownames(mrd) <- rownames(rd);colnames(mrd) <- c("RD adj","RD crude")
+mrd
+################
+
+#Per SD
+source("~/Dropbox/Documents/JOBB ONKO/R/RD per SD.R")
+print(nu <- Sys.time()) 
+Ptotal <- 769/92619 #endast blod
+#PLP
+crc2 <- crc[,c("fall","set","ui","vi","matchp.ht15","plp.s","age","pyear_num","gender","delproj_def","fasta2","bmi3m","smoke2","g6_merge","g2_merge","alc3","ribod.s","spfolatef.s","cobf.s")]
+crc2 <- na.omit(crc2)
+crc2["treatment"] <- crc2$plp.s
+formula <- "treatment+age+pyear_num+gender+delproj_def+fasta2+bmi3m+smoke2+g6_merge+g2_merge+alc3+ribod.s+spfolatef.s+cobf.s"
+set.seed(22229999);katt1s <- mao(crc2,Ptotal,formula,z=0.975,R=1000,match=1);katt1s$ODDS;katt1s$RISK 
+crc["treatment"] <- crc$plp.s
+formula <- "treatment+age+pyear_num+gender+delproj_def+fasta2"
+set.seed(22229999);katt2s <- mao(crc,Ptotal,formula,z=0.975,R=1000,match=1);katt2s$ODDS;katt2s$RISK 
+#HKXA
+crc2 <- crc[,c("fall","set","ui","vi","matchp.ht15","hkxa.s","age","pyear_num","gender","delproj_def","fasta2","bmi3m","smoke2","g6_merge","g2_merge","alc3","ribod.s","spfolatef.s","cobf.s")]
+crc2 <- na.omit(crc2)
+crc2["treatment"] <- crc2$hkxa.s
+formula <- "treatment+age+pyear_num+gender+delproj_def+fasta2+bmi3m+smoke2+g6_merge+g2_merge+alc3+ribod.s+spfolatef.s+cobf.s"
+set.seed(22229999);katt3s <- mao(crc2,Ptotal,formula,z=0.975,R=1000,match=1);katt3s$ODDS;katt3s$RISK
+crc["treatment"] <- crc$hkxa.s
+formula <- "treatment+age+pyear5+gender+delproj_def+fasta2"
+set.seed(22229999);katt4s <- mao(crc,Ptotal,formula,z=0.975,R=1000,match=1);katt4s$ODDS;katt4s$RISK
+#PAr
+crc2 <- crc[,c("fall","set","ui","vi","matchp.ht15","par.s","age","pyear_num","gender","delproj_def","fasta2","bmi3m","smoke2","g6_merge","g2_merge","alc3","ribod.s","spfolatef.s","cobf.s")]
+crc2 <- na.omit(crc2)
+crc2["treatment"] <- crc2$par.s
+formula <- "treatment+age+pyear_num+gender+delproj_def+fasta2+bmi3m+smoke2+g6_merge+g2_merge+alc3+ribod.s+spfolatef.s+cobf.s"
+set.seed(22229999);katt5s <- mao(crc2,Ptotal,formula,z=0.975,R=1000,match=1);katt5s$ODDS;katt5s$RISK
+formula <- "treatment+age+pyear_num+gender+delproj_def"
+crc["treatment"] <- crc$par.s
+set.seed(22229999);katt6s <- mao(crc,Ptotal,formula,z=0.975,R=1000,match=1);katt6s$ODDS;katt6s$RISK
+print(Sys.time()-nu) 
+
+################
+rds <- matrix(ncol=6,nrow=3,NA)
+colnames(rds) <- c("RD adj","CI-N low","CI-N high","RD crude","CI-N low","CI-N high")
+rownames(rds) <- c("PLP","HKXA","PAr")
+rds[1,] <- cbind(katt1s$RISK[1,1:3],katt2s$RISK[1,1:3])
+rds[2,] <- cbind(katt3s$RISK[1,1:3],katt4s$RISK[1,1:3])
+rds[3,] <- cbind(katt5s$RISK[1,1:3],katt6s$RISK[1,1:3])
+rds <- rds*1000
+rds <- round(rds,0)
+
+mrds <- matrix(ncol=2,nrow=nrow(rds),NA)
+mrds[,1] <- paste(rds[,1]," (",rds[,2],",",rds[,3],")",sep="")
+mrds[,2] <- paste(rds[,4]," (",rds[,5],",",rds[,6],")",sep="")
+rownames(mrds) <- rownames(rds);colnames(mrds) <- c("RD adj","RD crude")
+mrds
+
+################################################################################################################################
+
+
+#RD PLP sufficiency deficiency
+source('~/Dropbox/Documents/JOBB ONKO/R/RD 2 groups.R')
+Ptotal <- 769/92619 #endast blod
+crc$plp2 <- relevel(crc$plp2,ref="1")
+crc2 <- crc[,c("fall","set","ui","vi","matchp.ht15","plp2","age","pyear_num","gender","delproj_def","fasta2","bmi3m","smoke2","g6_merge","g2_merge","alc3","ribod.s","spfolatef.s","cobf.s")]
+crc2 <- na.omit(crc2)
+crc2["treatment"] <- crc2$plp2;levels(crc2$treatment) <- c(0,1)
+
+formula <- "treatment+age+pyear_num+gender+delproj_def+fasta2+bmi3m+smoke2+g6_merge+g2_merge+alc3+ribod.s+spfolatef.s+cobf.s"
+set.seed(22229999);katt21 <- mao(crc2,Ptotal,formula,z=0.975,R=1000,match=1);katt21$ODDS;katt21$RISK 
+formula <- "treatment+age+pyear_num+gender+delproj_def+fasta2"
+set.seed(22229999);katt22 <- mao(crc2,Ptotal,formula,z=0.975,R=1000,match=1);katt22$ODDS;katt22$RISK 
+
+###
+rd2 <- matrix(ncol=6,nrow=1,NA)
+colnames(rd2) <- c("RD adj","CI-N low","CI-N high","RD crude","CI-N low","CI-N high")
+rownames(rd2) <- rep(c("PLP"),1)
+rd2[1,] <- cbind(katt21$RISK[1,1:3],katt22$RISK[1,1:3])
+
+rd2 <- rd2*1000
+rd2 <- round(rd2,0)
+
+mrd2 <- matrix(ncol=2,nrow=nrow(rd2),NA)
+mrd2[,1] <- paste(rd2[,1]," (",rd2[,2],",",rd2[,3],")",sep="")
+mrd2[,2] <- paste(rd2[,4]," (",rd2[,5],",",rd2[,6],")",sep="")
+rownames(mrd2) <- rownames(rd2);colnames(mrd2) <- c("RD adj","RD crude")
+mrd2
+
+
+
+```
+Forrestplots for RDs
+
+```{r,echo=F}
+#Figure 1 PLP HK:XA PAr 
+t2 <- c(NA,"PLP","Q1 (<28.0) ","Q2 (28.0-38.2)","Q3 (38.2-51.4)","Q4 (>51.4)","P-trend:","Per 1SD change","B-6 D","B-6 S","HK:XA","Q1 (<2.0) ","Q2 (2.0-2.7)","Q3 (2.7-3.7)","Q4 (>3.7)","P-trend","Per 1SD change","PAr","Q1 (<0.35) ","Q2 (0.35-0.44)","Q3 (0.44-0.57)","Q4 (>0.57)","P-trend","Per 1SD change")
+#t4 <- rep("",34)
+t4 <- c("RD Crude","(cases/100 000)","ref",
+        mrd[1:3,2],NA,mrds[1,2],"ref",mrd2[1,2],NA,"ref",
+        mrd[4:6,2],NA,mrds[2,2],NA,"ref",
+       mrd[7:9,2],NA,mrds[3,2])
+t5 <- c("RD Adjusted","(cases/100 000)","ref",
+        mrd[1:3,1],NA,mrds[1,1],"ref",mrd2[1,1],NA,"ref",
+        mrd[4:6,1],NA,mrds[2,1],NA,"ref",
+       mrd[7:9,1],NA,mrds[3,1])
+t7 <- rep(" ",22)
+
+tabletext.rd<-cbind(t2,t4,t5)
+
+o.rd <- c(NA,NA,0,rd[1:3,1],NA,rds[1,1],0,rd2[1,1],NA,0,rd[4:6,1],NA,rds[2,1],NA,0,rd[7:9,1],NA,rds[3,1])
+l.rd <- c(NA,NA,0,rd[1:3,2],NA,rds[1,2],0,rd2[1,2],NA,0,rd[4:6,2],NA,rds[2,2],NA,0,rd[7:9,2],NA,rds[3,2])
+u.rd <- c(NA,NA,0,rd[1:3,3],NA,rds[1,3],0,rd2[1,3],NA,0,rd[4:6,3],NA,rds[2,3],NA,0,rd[7:9,3],NA,rds[3,3])
+
+
+sum1 <- rep(FALSE,24);sum1[1] <- TRUE
+
+#Ta bort ptrend:
+o.rd <- o.rd[-c(7,16,23)]
+l.rd <- l.rd[-c(7,16,23)]
+u.rd <- u.rd[-c(7,16,23)]
+sum1 <- sum1[-c(7,16,23)]
+tabletext.rd <- tabletext.rd[-c(7,16,23),] 
+
+
+#Make pic 6*10 inches
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(1, 3)))
+pushViewport(viewport(layout.pos.col = 2))
+forestplot(tabletext.rd[,c(2,3)],align=c(1,1,1),
+           o.rd,
+           l.rd,
+           u.rd,
+           zero = 1,
+           cex = 2,
+           lineheight = "auto",xlog=FALSE,boxsize=0.4,graphwidth=unit(4,"cm"),col=fpColors(zero="black",lines="black"),
+           xlab = "RD Adjusted",is.summary = sum1,xticks=c(-600,-400,-200,0,200,400))
+
+
+```
+
+
+###Restricted cubic splines (used)
+
+```{r,echo=F}
+
+#Using Restricted cubic plines in rms package
+#OR-plots
+
+#PLP
+q <- quantile(log(crc$plpd),probs=c(0.01,0.99),na.rm=T)
+data1 <- crc[,c("fall","plpd","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$plpd <- log(data1$plpd)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+ddist <- datadist(data1[,-1])
+options(datadist='ddist')
+
+#knots=c(0.05,0.5,0.95) #3 knots
+#knots=c(0.05,0.35,0.65,0.95) #4 knots
+knots=c(0.05,0.25,0.5,0.75,0.95) #5 knots
+#knots=c(0.05,0.20,0.35,0.5,0.65,0.80,0.95) #7 knots
+#knots=c(0.0500, 0.1625, 0.2750, 0.3875, 0.5000, 0.6125, 0.7250, 0.8375, 0.9500) #9 knots
+#knots=c(0.05,0.15,0.25,0.35,0.45,0.55,0.65,0.75,0.85,0.95) #10 knots
+
+fit <- lrm(formula = fall ~ rcs(plpd, parms=quantile(data1$plpd,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+# Plot the age effect as an odds ratio
+ddist$limits$plpd[2] <- log(23)   # make 22.9 (log 3.13,median i Q1) or median = 37.3 (log 3.62) the reference. Q1=3.33
+#Predict from low 1% to highest 99% percentiles:
+ddist$limits$plpd[4] <- q[1]
+ddist$limits$plpd[5] <- q[2]
+#Could also do: ddist$limits["Adjust to","age"] <- 30
+fit <- update(fit)   # make new reference value take effect =seq(q[1],q[2],length(data1$plpd))
+p <- Predict(fit, plpd, ref.zero=TRUE, fun=exp)
+anova(fit)
+#rugplot
+rug1 <- data.frame(plpd=data1$plpd,yhat=rep(1,length(data1$plpd)));
+rug1 <- rug1[rug1$plpd<=q[2]&rug1$plpd>=q[1],]
+#Plot
+g1 <- ggplot(p, ylab='OR (95% CI)',ylim=c(0,3),xlab="PLP (nmol/l)",adj.subtitle=F,
+addlayer=geom_hline(yintercept=1, col="gray")+theme_classic()+ theme(
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))+
+  scale_y_continuous(breaks=c(0.5,1.0,1.5,2.0,2.5,3.0))+scale_x_continuous(breaks=c(3,4,5,6),labels=round(exp(c(3,4,5,6)),0))+geom_rug(data=rug1,sides="b",size=0.20)+
+geom_vline(xintercept=quantile(data1[data1$fall==0,"plpd"],probs=seq(0,1,1/4),na.rm=T)[2:4],col="gray",linetype = "longdash"))
+
+#HKXA
+q <- quantile(log(crc$hkxa),probs=c(0.01,0.99),na.rm=T)
+data1 <- crc[,c("fall","hkxa","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$hkxa <- log(data1$hkxa)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+
+ddist <- datadist(data1[,-1])
+options(datadist='ddist')
+
+fit <- lrm(formula = fall ~ rcs(hkxa, parms=quantile(data1$hkxa,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+# Plot the age effect as an odds ratio
+
+ddist$limits$hkxa[2] <- log(1.7)    # make 1.7 (log 0.531) the reference value for plpd, median=1 (log). Q1=0.693
+#Predict from low 1% to highest 99% percentiles:
+ddist$limits$hkxa[4] <- q[1]
+ddist$limits$hkxa[5] <- q[2]
+#Could also do: ddist$limits["Adjust to","age"] <- 30
+fit <- update(fit)   # make new reference value take effect
+p <- Predict(fit, hkxa, ref.zero=TRUE, fun=exp)
+anova(fit)
+#Rugplot
+rug1 <- data.frame(hkxa=data1$hkxa,yhat=rep(1,length(data1$hkxa)))
+rug1 <- rug1[rug1$hkxa<=q[2]&rug1$hkxa>=q[1],]
+#Plot
+g2 <- ggplot(p, ylab="OR (95% CI)",ylim=c(0,3),xlab="HK:XA",adj.subtitle=F,
+             addlayer=geom_hline(yintercept=1, col="gray")+theme_classic() + theme(
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))+ 
+               scale_y_continuous(breaks=c(0.5,1.0,1.5,2.0,2.5,3.0))+scale_x_continuous(breaks=c(0,1,2),labels=round(exp(c(0,1,2)),2))+geom_rug(data=rug1,sides="b",size=0.20,position='jitter')+
+               geom_vline(xintercept=quantile(data1[data1$fall==0,"hkxa"],probs=seq(0,1,1/4),na.rm=T)[2:4],col="gray",linetype = "longdash"))
+
+
+#Par
+q <- quantile(log(crc$b6ratio),probs=c(0.01,0.99),na.rm=T)
+data1 <- crc[,c("fall","b6ratio","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$b6ratio <- log(data1$b6ratio)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+
+ddist <- datadist(data1[,-1])
+options(datadist='ddist')
+
+fit <- lrm(formula = fall ~ rcs(b6ratio, parms=quantile(data1$b6ratio,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+# Plot the age effect as an odds ratio
+ddist$limits$b6ratio[2] <- log(0.294)   # make -1.22 ref, -0.798 for median. Q1=-log(0.35)
+#Predict from low 1% to highest 99% percentiles:
+ddist$limits$b6ratio[4] <- q[1]
+ddist$limits$b6ratio[5] <- q[2]
+#Could also do: ddist$limits["Adjust to","age"] <- 30
+fit <- update(fit)   # make new reference value take effect
+p <- Predict(fit, b6ratio, ref.zero=TRUE, fun=exp)
+anova(fit)
+#rugplot
+rug1 <- data.frame(b6ratio=data1$b6ratio,yhat=rep(1,length(data1$b6ratio)));rug1 <- rug1[rug1$b6ratio<=q[2]&rug1$b6ratio>=q[1],]
+#Plot
+g3 <- ggplot(p, ylab='OR (95% CI)',ylim=c(0,3),xlab="PAr",adj.subtitle=F,
+       addlayer=geom_hline(yintercept=1, col="gray")+theme_classic()+ theme(
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))+
+       scale_y_continuous(breaks=c(0.5,1.0,1.5,2.0,2.5,3.0))+scale_x_continuous(breaks=seq(-1.5,0,0.5),labels=round(exp(seq(-1.5,0,0.5)),2))+geom_rug(data=rug1,sides="b",size=0.20)+
+         geom_vline(xintercept=quantile(data1[data1$fall==0,"b6ratio"],probs=seq(0,1,1/4),na.rm=T)[2:4],col="gray",linetype = "longdash"))
+
+grid.arrange(g1, g2, g3, ncol=3, nrow =2)
+
+####
+
+```
+
+Follow-up versus B6 markers
+```{r,echo=F}
+
+#Using Restricted cubic plines in rms package
+#cases
+#PLP
+q <- quantile(log(crc$plpd),probs=c(0.01,0.99),na.rm=T)
+#data1 <- crc[crc$fall==1,c("datdiff_year","plpd","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1 <- crc[crc$fall==1,c("fu.controls","datdiff_year","plpd","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$datdiff_year <- data1$fu.controls
+data1$plpd <- log(data1$plpd)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+ddist <- datadist(data1)
+options(datadist='ddist')
+
+fit <- ols(formula = plpd ~ rcs(datdiff_year, parms=quantile(data1$datdiff_year,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+#Predict from low 1% to highest 99% percentiles:
+ddist$limits$datdiff_year[4] <- min(data1$datdiff_year,na.rm=T)
+ddist$limits$datdiff_year[5] <- max(data1$datdiff_year,na.rm=T)
+#Could also do: ddist$limits["Adjust to","age"] <- 30
+
+p <- Predict(fit, datdiff_year)
+anova(fit)
+#rugplot 
+points1 <- data.frame(datdiff_year=data1$datdiff_year,yhat=data1$plpd)
+#Plot
+g11 <- ggplot(p, ylab='PLP (nmol/l)',xlab="Follow-up (years)",adj.subtitle=F,ylim=as.numeric(q),
+addlayer=theme_classic()+scale_y_continuous(breaks=c(3,4,5,6),labels=round(exp(c(3,4,5,6)),0))+
+geom_point(data=points1,size=0.2,alpha=0.3)+
+geom_vline(xintercept=quantile(data1$datdiff_year,probs=seq(0,1,1/3),na.rm=T)[2:3],col="gray",linetype = "longdash"))+ theme(
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))
+
+
+#HKXA
+q <- quantile(log(crc$hkxa),probs=c(0.01,0.99),na.rm=T)
+#data1 <- crc[crc$fall==1,c("datdiff_year","hkxa","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1 <- crc[crc$fall==1,c("fu.controls","datdiff_year","hkxa","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$datdiff_year <- data1$fu.controls
+data1$hkxa <- log(data1$hkxa)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+ddist <- datadist(data1)
+options(datadist='ddist')
+
+fit <- ols(formula = hkxa ~ rcs(datdiff_year, parms=quantile(data1$datdiff_year,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+#Predict from low 1% to highest 99% percentiles:
+ddist$limits$datdiff_year[4] <- min(data1$datdiff_year,na.rm=T)
+ddist$limits$datdiff_year[5] <- max(data1$datdiff_year,na.rm=T)
+#Could also do: ddist$limits["Adjust to","age"] <- 30
+
+p <- Predict(fit, datdiff_year)
+anova(fit)
+#rugplot 
+points1 <- data.frame(datdiff_year=data1$datdiff_year,yhat=data1$hkxa)
+#Plot
+g22 <- ggplot(p, ylab='HK:XA',xlab="Follow-up (years)",adj.subtitle=F,ylim=as.numeric(q),
+addlayer=theme_classic()+scale_y_continuous(breaks=c(0,1,2),labels=round(exp(c(0,1,2)),2))+
+geom_point(data=points1,size=0.2,alpha=0.3)+
+geom_vline(xintercept=quantile(data1$datdiff_year,probs=seq(0,1,1/3),na.rm=T)[2:3],col="gray",linetype = "longdash"))+ theme(
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))
+
+###
+
+###
+
+#Par
+q <- quantile(log(crc$b6ratio),probs=c(0.01,0.99),na.rm=T)
+#data1 <- crc[crc$fall==1,c("datdiff_year","b6ratio","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1 <- crc[crc$fall==1,c("fu.controls","datdiff_year","b6ratio","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$datdiff_year <- data1$fu.controls
+data1$b6ratio <- log(data1$b6ratio)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+ddist <- datadist(data1)
+options(datadist='ddist')
+
+fit <- ols(formula = b6ratio ~ rcs(datdiff_year, parms=quantile(data1$datdiff_year,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+#Predict from low 1% to highest 99% percentiles:
+ddist$limits$datdiff_year[4] <- min(data1$datdiff_year,na.rm=T)
+ddist$limits$datdiff_year[5] <- max(data1$datdiff_year,na.rm=T)
+#Could also do: ddist$limits["Adjust to","age"] <- 30
+
+p <- Predict(fit, datdiff_year)
+anova(fit)
+#rugplot 
+points1 <- data.frame(datdiff_year=data1$datdiff_year,yhat=data1$b6ratio)
+#Plot
+g33 <- ggplot(p, ylab='PAr',xlab="Follow-up (years)",adj.subtitle=F,ylim=as.numeric(q),
+addlayer=theme_classic()+scale_y_continuous(breaks=seq(-1.5,0,0.5),labels=round(exp(seq(-1.5,0,0.5)),2))+
+geom_point(data=points1,size=0.2,alpha=0.3)+
+geom_vline(xintercept=quantile(data1$datdiff_year,probs=seq(0,1,1/3),na.rm=T)[2:3],col="gray",linetype = "longdash"))+ theme(
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))
+
+
+#Controls########
+#PLP
+q <- quantile(log(crc$plpd),probs=c(0.01,0.99),na.rm=T)
+#data1 <- crc[crc$fall==1,c("datdiff_year","plpd","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1 <- crc[crc$fall==0,c("fu.controls","datdiff_year","plpd","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$datdiff_year <- data1$fu.controls
+data1$plpd <- log(data1$plpd)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+ddist <- datadist(data1)
+options(datadist='ddist')
+
+fit <- ols(formula = plpd ~ rcs(datdiff_year, parms=quantile(data1$datdiff_year,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+#Predict from low 1% to highest 99% percentiles:
+ddist$limits$datdiff_year[4] <- min(data1$datdiff_year,na.rm=T)
+ddist$limits$datdiff_year[5] <- max(data1$datdiff_year,na.rm=T)
+#Could also do: ddist$limits["Adjust to","age"] <- 30
+
+p <- Predict(fit, datdiff_year)
+anova(fit)
+#rugplot 
+points1 <- data.frame(datdiff_year=data1$datdiff_year,yhat=data1$plpd)
+#Plot
+g111 <- ggplot(p, ylab='PLP (nmol/l)',xlab="Follow-up (years)",adj.subtitle=F,ylim=as.numeric(q),
+addlayer=theme_classic()+scale_y_continuous(breaks=c(3,4,5,6),labels=round(exp(c(3,4,5,6)),0))+
+geom_point(data=points1,size=0.2,alpha=0.3)+
+geom_vline(xintercept=quantile(data1$datdiff_year,probs=seq(0,1,1/3),na.rm=T)[2:3],col="gray",linetype = "longdash"))+ theme(
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))
+
+###
+
+###
+
+#HKXA
+q <- quantile(log(crc$hkxa),probs=c(0.01,0.99),na.rm=T)
+#data1 <- crc[crc$fall==1,c("datdiff_year","hkxa","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1 <- crc[crc$fall==0,c("fu.controls","datdiff_year","hkxa","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$datdiff_year <- data1$fu.controls
+data1$hkxa <- log(data1$hkxa)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+ddist <- datadist(data1)
+options(datadist='ddist')
+
+fit <- ols(formula = hkxa ~ rcs(datdiff_year, parms=quantile(data1$datdiff_year,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+#Predict from low 1% to highest 99% percentiles:
+ddist$limits$datdiff_year[4] <- min(data1$datdiff_year,na.rm=T)
+ddist$limits$datdiff_year[5] <- max(data1$datdiff_year,na.rm=T)
+#Could also do: ddist$limits["Adjust to","age"] <- 30
+
+p <- Predict(fit, datdiff_year)
+anova(fit)
+#rugplot 
+points1 <- data.frame(datdiff_year=data1$datdiff_year,yhat=data1$hkxa)
+#Plot
+g222 <- ggplot(p, ylab='HK:XA',xlab="Follow-up (years)",adj.subtitle=F,ylim=as.numeric(q),
+addlayer=theme_classic()+scale_y_continuous(breaks=c(0,1,2),labels=round(exp(c(0,1,2)),2))+
+geom_point(data=points1,size=0.2,alpha=0.3)+
+geom_vline(xintercept=quantile(data1$datdiff_year,probs=seq(0,1,1/3),na.rm=T)[2:3],col="gray",linetype = "longdash"))+ theme(
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))
+
+###
+
+###
+
+#Par
+q <- quantile(log(crc$b6ratio),probs=c(0.01,0.99),na.rm=T)
+#data1 <- crc[crc$fall==1,c("datdiff_year","b6ratio","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1 <- crc[crc$fall==0,c("fu.controls","datdiff_year","b6ratio","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$datdiff_year <- data1$fu.controls
+data1$b6ratio <- log(data1$b6ratio)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+ddist <- datadist(data1)
+options(datadist='ddist')
+
+fit <- ols(formula = b6ratio ~ rcs(datdiff_year, parms=quantile(data1$datdiff_year,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+#Predict from low 1% to highest 99% percentiles:
+ddist$limits$datdiff_year[4] <- min(data1$datdiff_year,na.rm=T)
+ddist$limits$datdiff_year[5] <- max(data1$datdiff_year,na.rm=T)
+#Could also do: ddist$limits["Adjust to","age"] <- 30
+
+p <- Predict(fit, datdiff_year)
+anova(fit)
+#rugplot 
+points1 <- data.frame(datdiff_year=data1$datdiff_year,yhat=data1$b6ratio)
+#Plot
+g333 <- ggplot(p, ylab='PAr',xlab="Follow-up (years)",adj.subtitle=F,ylim=as.numeric(q),
+addlayer=theme_classic()+scale_y_continuous(breaks=seq(-1.5,0,0.5),labels=round(exp(seq(-1.5,0,0.5)),2))+
+geom_point(data=points1,size=0.2,alpha=0.3)+
+geom_vline(xintercept=quantile(data1$datdiff_year,probs=seq(0,1,1/3),na.rm=T)[2:3],col="gray",linetype = "longdash"))+ theme(
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))
+
+#plot
+grid.arrange(g11,g22,g33,g111,g222,g333, ncol=3, nrow =2)
+
+
+```
+
+Test difference in 3 and 5 knots:
+
+```{r,echo=F}
+
+#Using Restricted cubic plines in rms package
+#OR-plots
+
+#PLP
+q <- quantile(log(crc$plpd),probs=c(0.01,0.99),na.rm=T)
+data1 <- crc[,c("fall","plpd","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$plpd <- log(data1$plpd)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+ddist <- datadist(data1[,-1])
+options(datadist='ddist')
+
+#knots=c(0.05,0.5,0.95)
+knots=c(0.05,0.33,0.67,0.95)
+knots2=c(0.05,0.25,0.5,0.75,0.95)
+
+fit1 <- lrm(formula = fall ~ rcs(plpd, parms=quantile(data1$plpd,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+fit2 <- lrm(formula = fall ~ rcs(plpd, parms=quantile(data1$plpd,probs=knots2,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+anova(fit1)
+anova(fit2)
+
+#HKXA
+q <- quantile(log(crc$hkxa),probs=c(0.01,0.99),na.rm=T)
+data1 <- crc[,c("fall","hkxa","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$hkxa <- log(data1$hkxa)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+
+ddist <- datadist(data1[,-1])
+options(datadist='ddist')
+
+fit1 <- lrm(formula = fall ~ rcs(hkxa, parms=quantile(data1$hkxa,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+fit2 <- lrm(formula = fall ~ rcs(hkxa, parms=quantile(data1$hkxa,probs=knots2,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+anova(fit1)
+anova(fit2)
+#Par
+q <- quantile(log(crc$b6ratio),probs=c(0.01,0.99),na.rm=T)
+data1 <- crc[,c("fall","b6ratio","age","gender","pyear_num","fasta2","delproj_def","bmi3m","smoke2","clear4","g6_merge","g2_merge","alc3","spfolatef","ribod","cobf")]
+data1$b6ratio <- log(data1$b6ratio)
+data1[,c("spfolatef","ribod","cobf")] <- log(data1[,c("spfolatef","ribod","cobf")])
+
+
+ddist <- datadist(data1[,-1])
+options(datadist='ddist')
+
+fit1 <- lrm(formula = fall ~ rcs(b6ratio, parms=quantile(data1$b6ratio,probs=knots,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+fit2 <- lrm(formula = fall ~ rcs(b6ratio, parms=quantile(data1$b6ratio,probs=knots2,na.rm=T)) + gender+age+pyear_num+fasta2+delproj_def+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+spfolatef+ribod+cobf, x = TRUE, y = TRUE,data=data1)
+
+anova(fit1)
+anova(fit2)
+
+####
+
+```
+
+
+###General additive models (old, not used)
+Using B6-variables as log-transformed variables. Top row is markers relation to risk, bottom row is follow-up time in relation to the markers.
+
+```{r,echo=F}
+#Figure 3
+par(mfrow=c(2,3))
+#PLP, PLP uppvisar viss skillnad med cubic splines (cr) jämfört med default Thin plate regression (tp)
+data <- crc
+q <- quantile(log(data$plpd),probs=c(0.01,0.99),na.rm=T)
+gam <- gam(fall~s(log(plpd),bs="cr")+fasta2+s(age)+delproj_def+gender+s(pyear)+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+s(log(spfolatef))+s(log(ribod))+s(log(cobf)),data=data,family=binomial);s <- summary(gam)
+#Plot effect
+plot(gam, pages=0, residuals=F, pch=19,rug=F, cex=0.25,scheme=1, col="black",xaxt='n',ylab="s(PLP)", shade=T,shade.col="gray",seWithMean=T,scale=0,select=1,xlab="PLP (nmol/l)",
+     ylim=c(-1.0,1.0),xlim=quantile(log(data$plpd),probs=c(0.01,0.99),na.rm=T))
+xax <- seq(3,5.5,by=0.5)
+axis(1, at=xax, labels=as.character(round(exp(xax),0)),las=1) 
+abline(v=quantile(log(data[data$fall==0,"plpd"]),probs=seq(0,1,1/4),na.rm=T)[2:4],lty=2)
+rug(log(data[data$plpd>=exp(q[1])&data$plpd<=exp(q[2]),"plpd"]),col="black",ticksize=0.025,quiet = T)
+
+#HKXA
+q <- quantile(log(data$hkxa),probs=c(0.01,0.99),na.rm=T)
+gam <- gam(fall~s(log(hkxa),bs="cr")+fasta2+s(age)+delproj_def+gender+s(pyear)+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+s(log(spfolatef))+s(log(ribod))+s(log(cobf)),data=data,family=binomial);s <- summary(gam)
+#Plot effect
+plot(gam, pages=0, residuals=F, pch=19,rug=F, cex=0.25,scheme=1, col="black",ylab="s(HK:XA)", shade=T,shade.col="gray",seWithMean=T,scale=0,select=1,xlab="HK:XA",xaxt='n',
+     ylim=c(-1.0,1.0),xlim=quantile(log(data$hkxa),probs=c(0.01,0.99),na.rm=T))
+xax <- seq(0,2.5,by=0.5)
+axis(1, at=xax, labels=as.character(round(exp(xax),1)),las=1) 
+abline(v=quantile(log(data[data$fall==0,"hkxa"]),probs=seq(0,1,1/4),na.rm=T)[2:4],lty=2)
+rug(log(data[data$hkxa>=exp(q[1])&data$hkxa<=exp(q[2]),"hkxa"]),col="black",ticksize=0.025,quiet = T)
+
+#PAr
+q <- quantile(log(data$b6ratio),probs=c(0.01,0.99),na.rm=T)
+gam <- gam(fall~s(log(b6ratio),bs="cr")+fasta2+s(age)+delproj_def+gender+s(pyear)+bmi3m+smoke2+clear4+g6_merge+g2_merge+alc3+s(log(spfolatef))+s(log(ribod))+s(log(cobf)),data=data,family=binomial);s <- summary(gam)
+#Plot effect
+plot(gam, pages=0, residuals=F, pch=19,rug=F, cex=0.25,scheme=1, col="black",xaxt='n',ylab="s(PAr)", shade=T,shade.col="gray",seWithMean=T,scale=0,select=1,xlab="PAr",
+     ylim=c(-1.0,1.0),xlim=quantile(log(data$b6ratio),probs=c(0.01,0.99),na.rm=T))
+xax <- seq(-1.5,0,by=0.5)
+axis(1, at=xax, labels=as.character(round(exp(xax),1)),las=1) 
+abline(v=quantile(log(data[data$fall==0,"b6ratio"]),probs=seq(0,1,1/4),na.rm=T)[2:4],lty=2)
+rug(log(data[data$b6ratio>=exp(q[1])&data$b6ratio<=exp(q[2]),"b6ratio"]),col="black",ticksize=0.025,quiet = T)
+
+# Follow-up in relation to B6-markers
+#Ej skillnad om man använder cubic spliones
+#PLP
+gam <- gam(log(plpd)~s(datdiff_year,bs="cr")+s(age)+s(pyear)+gender+fasta2+delproj_def,data=crc[crc$fall==1,],family=gaussian);s <- summary(gam)
+#Plot effect
+plot(gam, pages=0, residuals=T, pch=19, cex=0.25,scheme=1, col="black", shade=T,shade.col="gray",seWithMean=T,select=1,xlab="Follow-up (years)",ylim=c(-2,2),ylab="s(Follow-up)",main="PLP")
+abline(v=quantile(crc[crc$fall==1,"datdiff_year"],probs=seq(0,1,1/3),na.rm=T)[2:3],lty=2)
+points(crc[crc$fall==0,"fu.controls"],scale(log(crc[crc$fall==0,]$plpd)),col="red",pch=19, cex=0.10)
+
+#hkxa
+gam <- gam(log(hkxa)~s(datdiff_year,bs="cr")+s(age)+s(pyear)+gender+fasta2+delproj_def,data=crc[crc$fall==1,]);s <- summary(gam)
+#Plot effect
+plot(gam, pages=0, residuals=T, pch=19, cex=0.25,scheme=1, col="black", shade=T,shade.col="gray",seWithMean=T,select=1,xlab="Follow-up (years)",ylim=c(-2,2),ylab="s(Follow-up)",main="HK:XA")
+abline(v=quantile(crc[crc$fall==1,"datdiff_year"],probs=seq(0,1,1/3),na.rm=T)[2:3],lty=2)
+
+#PAr
+gam <- gam(log(b6ratio)~s(datdiff_year,bs="cr")+s(age)+s(pyear)+gender+fasta2+delproj_def,data=crc[crc$fall==1,]);s <- summary(gam)
+#Plot effect
+plot(gam, pages=0, residuals=T, pch=19, cex=0.25,scheme=1, col="black", shade=T,shade.col="gray",seWithMean=T,select=1,xlab="Follow-up (years)",ylim=c(-2,2),ylab="s(Follow-up)",main="PAr")
+abline(v=quantile(crc[crc$fall==1,"datdiff_year"],probs=seq(0,1,1/3),na.rm=T)[2:3],lty=2)
+
+```
+
+
+###Sub-group analyses:
+
+##Ogino-method
+```{r,echo=F}
+#Variables:
+crc["site"] <- crc$lokal_3;levels(crc$site) <- c(1,2,3,0);crc[crc$fall==0,"site"] <- 0;crc$site <- relevel(crc$site,ref="0")
+crc["stage"] <- crc$stadium;levels(crc$stage) <- c(1,2,9999,0);crc[crc$fall==0,"stage"] <- 0;crc$stage <- relevel(crc$stage,ref="0")
+crc["s.age"] <- cut(crc$age,breaks=c(0,59,100),right=F,labels=c(1,2))
+crc["fall32"] <- crc$fall3;levels(crc$fall32) <- c("0","1","1","3")
+
+#Subgroup analyses:
+#Follw uo tertiles
+(plp1 <- subtype(crc,y="fall",x="plpd4",type="fall3",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s"))
+(hkxa1 <- subtype(crc,y="fall",x="hkxa4",type="fall3",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s"))
+(par1 <- subtype(crc,y="fall",x="b6ratio4",type="fall3",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s"))
+
+plp1.s <- subtype(crc,y="fall",x="plp.s",type="fall3",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+hkxa1.s <- subtype(crc,y="fall",x="hkxa.s",type="fall3",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+par1.s <- subtype(crc,y="fall",x="par.s",type="fall3",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+
+#Site
+plp2 <- subtype(crc,y="fall",x="plpd4",type="site",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+hkxa2 <- subtype(crc,y="fall",x="hkxa4",type="site",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+par2 <- subtype(crc,y="fall",x="b6ratio4",type="site",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+
+plp2.s <- subtype(crc,y="fall",x="plp.s",type="site",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+hkxa2.s <- subtype(crc,y="fall",x="hkxa.s",type="site",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+par2.s <- subtype(crc,y="fall",x="par.s",type="site",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+
+#stage
+c <- crc[crc$stage %in% c(1,2),];crc2 <- crc[crc$set %in% c$set,];crc2$stage <- droplevels(crc2$stage);crc2$stage <- relevel(crc2$stage,ref="0");table(crc2$stage)
+
+plp3 <- subtype(crc2,y="fall",x="plpd4",type="stage",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+hkxa3 <- subtype(crc2,y="fall",x="hkxa4",type="stage",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+par3 <- subtype(crc2,y="fall",x="b6ratio4",type="stage",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+
+plp3.s <- subtype(crc2,y="fall",x="plp.s",type="stage",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+hkxa3.s <- subtype(crc2,y="fall",x="hkxa.s",type="stage",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+par3.s <- subtype(crc2,y="fall",x="par.s",type="stage",adj="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s")
+
+
+#sex
+#Test so that its the same to include interaction term and just stratifying: YES!  
+crc2 <- subset(crc,crc$gender==1)
+crc3 <- subset(crc,crc$gender==2)
+
+c1 <- clogit(fall~b6ratio4+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc2,method="approximate")
+c2 <- clogit(fall~b6ratio4+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc3,method="approximate")
+
+#test:SEX differences
+c <- clogit(fall~plpd4+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~plpd4*gender+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+c <- clogit(fall~hkxa4+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~hkxa4*gender+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+c <- clogit(fall~b6ratio4+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~b6ratio4*gender+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+
+c <- clogit(fall~plp.s+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~plp.s*gender+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+c <- clogit(fall~hkxa.s+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~hkxa.s*gender+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+c <- clogit(fall~par.s+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~par.s*gender+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+
+#age
+c <- clogit(fall~plpd4+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~plpd4*s.age+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+c <- clogit(fall~hkxa4+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~hkxa4*s.age+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+c <- clogit(fall~b6ratio4+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~b6ratio4*s.age+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+
+c <- clogit(fall~plp.s+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~plp.s*s.age+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+c <- clogit(fall~hkxa.s+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~hkxa.s*s.age+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+c <- clogit(fall~par.s+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+c3 <- clogit(fall~par.s*s.age+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+spfolatef.s+ribod.s+cobf.s+strata(set),data=crc,method="approximate")
+anova(c,c3)
+
+
+
+
+#Collect all numbers in a matrix and export to excel
+test1 <-  myround(c(plp1$test$`P(>|Chi|)`[2],rep(NA,3),plp1.s$test$`P(>|Chi|)`[2],
+            hkxa1$test$`P(>|Chi|)`[2],rep(NA,3),hkxa1.s$test$`P(>|Chi|)`[2],
+            par1$test$`P(>|Chi|)`[2],rep(NA,3),par1.s$test$`P(>|Chi|)`[2]),3)
+test2 <-  myround(c(plp2$test$`P(>|Chi|)`[2],rep(NA,3),plp2.s$test$`P(>|Chi|)`[2],
+            hkxa2$test$`P(>|Chi|)`[2],rep(NA,3),hkxa2.s$test$`P(>|Chi|)`[2],
+            par2$test$`P(>|Chi|)`[2],rep(NA,3),par2.s$test$`P(>|Chi|)`[2]),3)
+test3 <-  myround(c(plp3$test$`P(>|Chi|)`[2],rep(NA,3),plp3.s$test$`P(>|Chi|)`[2],
+            hkxa3$test$`P(>|Chi|)`[2],rep(NA,3),hkxa3.s$test$`P(>|Chi|)`[2],
+            par3$test$`P(>|Chi|)`[2],rep(NA,3),par3.s$test$`P(>|Chi|)`[2]),3)
+
+mm <- cbind(rbind(rep("",3),plp1$or,plp1.s$or,rep("",3),hkxa1$or,hkxa1.s$or,rep("",3),par1$or,par1.s$or),test1,
+            rbind(rep("",3),plp2$or,plp2.s$or,rep("",3),hkxa2$or,hkxa2.s$or,rep("",3),par2$or,par2.s$or),test2,
+            rbind(rep("",2),plp3$or,plp3.s$or,rep("",2),hkxa3$or,hkxa3.s$or,rep("",2),par3$or,par3.s$or),test3)
+colnames(mm) <- c("follow-up <5.8","follow-up 5.8-10.5","test","follow-up >10.5","Right colon","Left colon","Rectum","test","Stage I&II","Stage III&IV","test")
+
+write.xlsx(mm, file ="B6 heterogeniety strat.xlsx",sheetName = "TestSheet", row.names = FALSE)
+
+
+```
+
+
+#Just regular stratifying method
+Conditional logistic regression ORs, adjusting for variables corresponding to Model 3
+```{r CLR subgroup analysis,echo=F,warning=F}
+
+#List of subgroup data sets
+crc1 <- crc
+crc2 <- subset(crc,crc$gender==1)
+crc3 <- subset(crc,crc$gender==2)
+crc.uu <- subset(crc,crc$datdiff_year<5.8&crc$fall==1);crc4 <- crc[crc$set %in% crc.uu$set, ]
+crc.uu <- subset(crc,(crc$datdiff_year>=5.8&crc$datdiff_year<10.5)&crc$fall==1);crc5 <- crc[crc$set %in% crc.uu$set, ]
+crc.uu <- subset(crc,crc$datdiff_year>=10.5&crc$fall==1);crc6 <- crc[crc$set %in% crc.uu$set, ]
+crc.uu <- subset(crc,crc$lokal_3==1&crc$fall==1);crc7 <- crc[crc$set %in% crc.uu$set, ]
+crc.uu <- subset(crc,crc$lokal_3==2&crc$fall==1);crc8 <- crc[crc$set %in% crc.uu$set, ]
+crc.uu <- subset(crc,crc$lokal_3==3&crc$fall==1);crc9 <- crc[crc$set %in% crc.uu$set, ]
+crc.uu <- subset(crc,crc$stadium==1&crc$fall==1);crc10 <- crc[crc$set %in% crc.uu$set, ]
+crc.uu <- subset(crc,crc$stadium==2&crc$fall==1);crc11 <- crc[crc$set %in% crc.uu$set, ]
+crc12 <- subset(crc,crc$age<59)
+crc13 <- subset(crc,crc$age>=59)
+ls <- list(crc1,crc2,crc3,crc4,crc5,crc6,crc7,crc8,crc9,crc10,crc11,crc12,crc13)
+
+#Matrices to store results in
+st <- matrix(ncol=14,nrow=22,NA)
+n.st <- matrix(ncol=14,nrow=22,NA)
+st.o <- matrix(ncol=14,nrow=22,NA)
+st.sd <- matrix(ncol=14,nrow=22,NA)
+n.st[1,] <- st[1,]  <- c("Variables","All","Males","Females","follow-up <5.8","follow-up 5.8-10.5","follow-up >10.5","Right colon","Left colon","Rectum","Stage I&II","Stage III&IV","Below md Age","Above md Age")
+n.st[2:22,1] <- st[2:22,1]  <- c("PLP","PLP 1","PLP 2","PLP 3","PLP 4","PLP trend","PLP per 1SD","HK:XA","HK:XA 1","HK:XA 2","HK:XA 3","HK:XA 4","HK:XA trend","HK:XA per 1SD","PAr","PAr 1","PAr 2","PAr 3","PAr 4","PAr trend","PAr per 1SD")
+j <- 1
+
+#For-loop to estimate relations to cancer by subgroup: 
+for(i in 1:13){
+  j <- j+1
+  (plp <- adjust(data=ls[[i]],var="plpd4",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+  (par <- adjust(data=ls[[i]],var="b6ratio4",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE))
+  (hkxa <- adjust(data=ls[[i]],var="hkxa4",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE))
+(plp.sd <- adjust(data=ls[[i]],var="plp.s",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+(hkxa.sd <- adjust(data=ls[[i]],var="hkxa.s",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+(par.sd <- adjust(data=ls[[i]],var="par.s",adjust="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4",adjust2="bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s",showc=F,surv=FALSE)) #cob, ribo, folate, met ändrar ej estimaten
+  n.st[2:22,j] <- c(NA,paste(table(ls[[i]]$plpd4,ls[[i]]$fall)[,2],"/",table(ls[[i]]$plpd4,ls[[i]]$fall)[,1],sep=""),NA,NA,NA,
+           paste(table(ls[[i]]$hkxa4,ls[[i]]$fall)[,2],"/",table(ls[[i]]$hkxa4,ls[[i]]$fall)[,1],sep=""),NA,NA,NA,
+           paste(table(ls[[i]]$b6ratio4,ls[[i]]$fall)[,2],"/",table(ls[[i]]$b6ratio4,ls[[i]]$fall)[,1],sep=""),NA,NA)
+  form <- "fall~as.numeric(plpd4)+strata(set)+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s";clog <- clogit(as.formula(form),data=ls[[i]],method="approximate");c <- summary(clog);p.plp <- round(c$coefficients[1,5],3)
+  form <- "fall~as.numeric(hkxa4)+strata(set)+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s";clog <- clogit(as.formula(form),data=ls[[i]],method="approximate");c <- summary(clog);p.hkxa <- round(c$coefficients[1,5],3)
+  form <- "fall~as.numeric(b6ratio4)+strata(set)+bmi3m+smoke2+g6_merge+g2_merge+alc3+clear4+ribod.s+spfolatef.s+cobf.s";clog <- clogit(as.formula(form),data=ls[[i]],method="approximate");c <- summary(clog);p.par <- round(c$coefficients[1,5],3)
+  st[2:22,j] <- c(NA,"ref",sprintf("%.2f (%.2f,%.2f)", plp$Model3[1:3,1], plp$Model3[1:3,2],plp$Model3[1:3,3]),p.plp,sprintf("%.2f (%.2f,%.2f)", plp.sd$Model3[1], plp.sd$Model3[2],plp$Model3[3]),NA,"ref",
+                  sprintf("%.2f (%.2f,%.2f)", hkxa$Model3[1:3,1], hkxa$Model3[1:3,2],hkxa$Model3[1:3,3]),p.hkxa,sprintf("%.2f (%.2f,%.2f)", hkxa.sd$Model3[1], hkxa.sd$Model3[2],hkxa$Model3[3]),NA,"ref",
+                  sprintf("%.2f (%.2f,%.2f)", par$Model3[1:3,1], par$Model3[1:3,2],par$Model3[1:3,3]),p.par,sprintf("%.2f (%.2f,%.2f)", par.sd$Model3[1], par.sd$Model3[2],par$Model3[3]))
+  
+st.o[2:22,j] <- c(NA,0,plp$Model3[1:3,4],NA,plp.sd$Model3[4],NA,0,hkxa$Model3[1:3,4],NA,hkxa.sd$Model3[4],NA,0,par$Model3[1:3,4],NA,par.sd$Model3[4])
+st.sd[2:22,j] <- c(NA,0,plp$Model3[1:3,5],NA,plp.sd$Model3[5],NA,0,hkxa$Model3[1:3,5],NA,hkxa.sd$Model3[5],NA,0,par$Model3[1:3,5],NA,par.sd$Model3[5])
+  }
+
+s <- rbind(n.st,st)
+s
+write.xlsx(s, file ="strati B6.xlsx",sheetName = "TestSheet", row.names = FALSE)
+
+```
+
+
+###Follow-up long forestplot plot:
+Make three seperate plots then out them together in Pages)
+
+```{r,echo=F,fig.width = 4, fig.height = 4}
+#n
+c <- crc[crc$fall3==1,];c2 <- crc[crc$set %in% c$set,]
+w1 <- table(c2$plpd4,c2$fall)
+w2 <- table(c2$b6ratio4,c2$fall)
+w3 <- table(c2$hkxa4,c2$fall)
+c <- crc[crc$fall3==2,];c2 <- crc[crc$set %in% c$set,]
+w11 <- table(c2$plpd4,c2$fall)
+w22 <- table(c2$b6ratio4,c2$fall)
+w33 <- table(c2$hkxa4,c2$fall)
+c <- crc[crc$fall3==3,];c2 <- crc[crc$set %in% c$set,]
+w111 <- table(c2$plpd4,c2$fall)
+w222 <- table(c2$b6ratio4,c2$fall)
+w333 <- table(c2$hkxa4,c2$fall)
+
+#Figure 1 PLP HK:XA PAr 
+
+t1 <- c(NA,"PLP","Q1 (<28.0) ","Q2 (28.0-38.2)","Q3 (38.2-51.4)","Q4 (>51.4)","Per 1SD change","HK:XA","Q1 (<2.0) ","Q2 (2.0-2.7)","Q3 (2.7-3.7)","Q4 (>3.7)","Per 1SD change","PAr","Q1 (<0.35) ","Q2 (0.35-0.44)","Q3 (0.44-0.57)","Q4 (>0.57)","Per 1SD change")
+#t2 <- c("Cases/\ncontrols",n.st[3:6,5],n.st[2:22,6],n.st[2:22,7]) 
+
+t22 <- c("n",NA,paste(w1[,2],"/",w1[,1],sep=""),NA,NA,
+         paste(w2[,2],"/",w2[,1],sep=""),NA,NA,paste(w3[,2],"/",w3[,1],sep=""),NA) 
+t2 <- c("Follow-up <5.8",NA,"ref",plp1$or[,1],plp1.s$or[,1],NA,"ref",hkxa1$or[,1],hkxa1.s$or[,1],NA,"ref",par1$or[,1],par1.s$or[,1]) 
+
+t33 <- c("n",NA,paste(w11[,2],"/",w11[,1],sep=""),NA,NA,
+         paste(w22[,2],"/",w22[,1],sep=""),NA,NA,paste(w33[,2],"/",w33[,1],sep=""),NA) 
+t3 <- c("Follow-up 5.8-10.5",NA,"ref",plp1$or[,2],plp1.s$or[,2],NA,"ref",hkxa1$or[,2],hkxa1.s$or[,2],NA,"ref",par1$or[,2],par1.s$or[,2]) 
+
+t44 <- c("n",NA,paste(w111[,2],"/",w111[,1],sep=""),NA,NA,
+         paste(w222[,2],"/",w222[,1],sep=""),NA,NA,paste(w333[,2],"/",w333[,1],sep=""),NA) 
+t4 <- c("Follow-up >10.5",NA,"ref",plp1$or[,3],plp1.s$or[,3],NA,"ref",hkxa1$or[,3],hkxa1.s$or[,3],NA,"ref",par1$or[,3],par1.s$or[,3]) 
+
+t5 <- c("P-heterogeniety",rep(NA,5),myround(plp1.s$test$`P(>|Chi|)`[2],2),rep(NA,5),myround(hkxa1.s$test$`P(>|Chi|)`[2],2),rep(NA,5),myround(par1.s$test$`P(>|Chi|)`[2],2))
+
+tabletext<-cbind(t1,t22,t2,t33,t3,t44,t4,t5)
+
+
+o1 <- c(NA,NA,1,plp1$subtypes[1:3,1],plp1.s$subtypes[1,1],NA,1,hkxa1$subtypes[1:3,1],hkxa1.s$subtypes[1,1],NA,1,par1$subtypes[1:3,1],par1.s$subtypes[1,1]) 
+o2 <- c(NA,NA,1,plp1$subtypes[4:6,1],plp1.s$subtypes[2,1],NA,1,hkxa1$subtypes[4:6,1],hkxa1.s$subtypes[2,1],NA,1,par1$subtypes[4:6,1],par1.s$subtypes[2,1]) 
+o3 <- c(NA,NA,1,plp1$subtypes[7:9,1],plp1.s$subtypes[3,1],NA,1,hkxa1$subtypes[7:9,1],hkxa1.s$subtypes[3,1],NA,1,par1$subtypes[7:9,1],par1.s$subtypes[3,1]) 
+
+l1 <- c(NA,NA,1,plp1$subtypes[1:3,2],plp1.s$subtypes[1,2],NA,1,hkxa1$subtypes[1:3,2],hkxa1.s$subtypes[1,2],NA,1,par1$subtypes[1:3,2],par1.s$subtypes[1,2]) 
+l2 <- c(NA,NA,1,plp1$subtypes[4:6,2],plp1.s$subtypes[2,2],NA,1,hkxa1$subtypes[4:6,2],hkxa1.s$subtypes[2,2],NA,1,par1$subtypes[4:6,2],par1.s$subtypes[2,2]) 
+l3 <- c(NA,NA,1,plp1$subtypes[7:9,2],plp1.s$subtypes[3,2],NA,1,hkxa1$subtypes[7:9,2],hkxa1.s$subtypes[3,2],NA,1,par1$subtypes[7:9,2],par1.s$subtypes[3,2]) 
+
+u1 <- c(NA,NA,1,plp1$subtypes[1:3,3],plp1.s$subtypes[1,3],NA,1,hkxa1$subtypes[1:3,3],hkxa1.s$subtypes[1,3],NA,1,par1$subtypes[1:3,3],par1.s$subtypes[1,3]) 
+u2 <- c(NA,NA,1,plp1$subtypes[4:6,3],plp1.s$subtypes[2,3],NA,1,hkxa1$subtypes[4:6,3],hkxa1.s$subtypes[2,3],NA,1,par1$subtypes[4:6,3],par1.s$subtypes[2,3]) 
+u3 <- c(NA,NA,1,plp1$subtypes[7:9,3],plp1.s$subtypes[3,3],NA,1,hkxa1$subtypes[7:9,3],hkxa1.s$subtypes[3,3],NA,1,par1$subtypes[7:9,3],par1.s$subtypes[3,3]) 
+
+sum1 <- rep(FALSE,19)
+sum1[c(1,2,8,14)] <- TRUE
+
+#FORRESTPLOT:
+#Make pic 6*8 inches
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(1, 5)))
+pushViewport(viewport(layout.pos.col = 3))
+#plotta 
+t <- tabletext[,c(1,2,8)]
+forestplot(t,
+           o1,
+           l1,
+           u1,
+           zero = 1,
+           cex = 2,
+           graph.pos = 3,
+           lineheight = "auto",xlog=T,boxsize=0.3,graphwidth=unit(4,"cm"),col=fpColors(zero="black",lines="black"),
+           xlab = "Follow-up < 5.8",is.summary = sum1,xticks=c(0.3,0.5,1.0,2.0,3.0),new_page=T)
+#
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(1, 5)))
+pushViewport(viewport(layout.pos.col = 3))
+t <- tabletext[,c(1,4,8)]
+forestplot(t,
+           o2,
+           l2,
+           u2,
+           zero = 1,
+           cex = 2,
+          graph.pos = 3,
+           lineheight = "auto",xlog=TRUE,boxsize=0.3,graphwidth=unit(4,"cm"),col=fpColors(zero="black",lines="black"),
+           xlab = "Follow-up 5.8-10.5",is.summary = sum1,xticks=c(0.3,0.5,1.0,2.0,3.0),new_page=T)
+#
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(1, 5)))
+pushViewport(viewport(layout.pos.col = 3))
+t <- tabletext[,c(1,6,8)]
+#t <- rep(NA,19)
+forestplot(t,
+           o3,
+           l3,
+           u3,
+           zero = 1,
+           cex = 2,
+            graph.pos = 3,
+           lineheight = "auto",xlog=T,boxsize=0.3,graphwidth=unit(4,"cm"),col=fpColors(zero="black",lines="black"),
+           xlab = expression(Follow-up>=10.5),is.summary = sum1,xticks=c(0.3,0.5,1.0,2.0,3.0),new_page=T)
+
+```
+
+
+
+Sensitivity analysis:
+
+```{r,echo=F}
+
+intk <- crc[crc$delproj_def=="VIP",]
+tapply(intk$plpd,intk$l2a2,summary)
+tapply(intk$plpd,intk$l2b2,summary)
+tapply(intk$plpd,intk$l2a1,summary)
+tapply(intk$plpd,intk$l2b1,summary)
+
+tapply(intk$b6ratio,intk$l2a2,summary)
+tapply(intk$b6ratio,intk$l2b2,summary)
+tapply(intk$b6ratio,intk$l2a1,summary)
+tapply(intk$b6ratio,intk$l2b1,summary)
+
+tapply(intk$hkxa,intk$l2a2,summary)
+tapply(intk$hkxa,intk$l2b2,summary)
+tapply(intk$hkxa,intk$l2a1,summary)
+tapply(intk$hkxa,intk$l2b1,summary)
+
+intk[intk=="7777"] <- NA
+apply(intk[,c("l2a1","l2b1","l2a2","l2b2","l2a6","l2b6")],2,table)
+apply(intk[,c("folasum1","b2sum1","b6sum1","b12sum1","alkosum1")],2,summary)
+
+#Total energiintag (kcal/dag)
+tapply(intk$ensum1,intk$fall,summary)
+intk$ensum11 <- intk$ensum1*0.004184
+tapply(intk$ensum11,intk$fall,summary)
+
+intk["folasum11"] <- intk$folasum1/intk$ensum11
+intk["b2sum11"] <- intk$b2sum1/intk$ensum11
+intk["b6sum11"] <- intk$b6sum1/intk$ensum11
+intk["b12sum11"] <- intk$b12sum1/intk$ensum11
+intk["alkosum11"] <- intk$alkosum1/intk$ensum11
+apply(intk[,c("folasum11","b6sum11","b2sum11","b12sum11","alkosum11")],2,function(x) tapply(x,intk$fall,summary))
+
+
+#Fastetid:
+crc["fasta22"] <- crc$fasta2;levels(crc$fasta22) <- c(1,1,2)
+clog <- clogit(fall~plpd4+strata(set),data=crc[crc$fasta22==1,]);summary(clog)
+clog <- clogit(fall~plpd4+strata(set),data=crc[crc$fasta22==2,]);summary(clog)
+
+clog <- clogit(fall~b6ratio4+strata(set),data=crc[crc$fasta22==1,]);summary(clog)
+clog <- clogit(fall~b6ratio4+strata(set),data=crc[crc$fasta22==2,]);summary(clog)
+
+clog <- clogit(fall~hkxa4+strata(set),data=crc[crc$fasta22==1,]);summary(clog)
+clog <- clogit(fall~hkxa4+strata(set),data=crc[crc$fasta22==2,]);summary(clog)
+
+#tests
+clog <- clogit(fall~plpd4+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~plpd4*fasta22+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+clog <- clogit(fall~b6ratio4+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~b6ratio4*fasta22+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+clog <- clogit(fall~hkxa4+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~hkxa4*fasta22+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+#log 
+clog <- clogit(fall~plp.s+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~plp.s*fasta22+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+clog <- clogit(fall~par.s+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~par.s*fasta22+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+clog <- clogit(fall~hkxa.s+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~hkxa.s*fasta22+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+
+#Cohort? Nothing for quartiles or .s, or maybe Par?
+clog <- clogit(fall~plpd4+strata(set),data=crc[crc$delproj_def=="MA",]);summary(clog)
+clog <- clogit(fall~plpd4+strata(set),data=crc[crc$delproj_def=="VIP",]);summary(clog)
+
+clog <- clogit(fall~b6ratio4+strata(set),data=crc[crc$delproj_def=="MA",]);summary(clog)
+clog <- clogit(fall~b6ratio4+strata(set),data=crc[crc$delproj_def=="VIP",]);summary(clog)
+
+clog <- clogit(fall~hkxa4+strata(set),data=crc[crc$delproj_def=="MA",]);summary(clog)
+clog <- clogit(fall~hkxa4+strata(set),data=crc[crc$delproj_def=="VIP",]);summary(clog)
+
+#tests
+clog <- clogit(fall~plpd4+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~plpd4*delproj_def+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+clog <- clogit(fall~b6ratio4+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~b6ratio4*delproj_def+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+clog <- clogit(fall~hkxa4+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~hkxa4*delproj_def+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+#log 
+clog <- clogit(fall~plp.s+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~plp.s*delproj_def+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+clog <- clogit(fall~par.s+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~par.s*delproj_def+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+clog <- clogit(fall~hkxa.s+strata(set),data=crc);summary(clog)
+clog1 <- clogit(fall~hkxa.s*delproj_def+strata(set),data=crc);summary(clog1)
+anova(clog,clog1)
+
+```
+
+
+
+sampling year or markörer:
+
+```{r,echo=F}
+
+
+#Eller med grid arrange
+g1 <- ggplot(crc, aes(x=as.factor(pyear), y=log(plpd))) + 
+  geom_boxplot(outlier.shape=NA) + #avoid plotting outliers twice
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.3)+
+  theme_bw()+
+  labs(x=NULL)+
+  ylab("log-PLP")+annotate("text",x=1:22,y=7,label=table(crc$pyear))+annotate("text",x=11,y=7.5,label="N")
+  
+g2 <- ggplot(crc, aes(x=as.factor(pyear), y=log(hkxa))) + 
+  geom_boxplot(outlier.shape=NA) + #avoid plotting outliers twice
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.3)+
+  theme_bw()+
+  labs(x=NULL)+
+  ylab("log-HK:XA")
+  #+annotate("text",x=1:22,y=5,label=table(crc$pyear))+annotate("text",x=11,y=5.5,label="N")
+
+g3 <- ggplot(crc, aes(x=as.factor(pyear), y=log(b6ratio))) + 
+  geom_boxplot(outlier.shape=NA) + #avoid plotting outliers twice
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.3)+
+  theme_bw()+xlab("Sampling year")+ylab("log-PAr")
+  #+annotate("text",x=1:22,y=7,label=table(crc$pyear))+annotate("text",x=11,y=8.5,label="N")
+
+grid.arrange(g1,g2,g3,ncol=1,nrow=3) #7*10 inches
+```
+
