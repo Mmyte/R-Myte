@@ -35,6 +35,7 @@ library(corrplot)
 library(reshape)
 library(ENmix)
 library(gdata)                
+library(ggExtra)
 
 #Functions
 source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
@@ -138,27 +139,77 @@ nr <- sort(nr,decreasing=F)
 #corre[is.na(corre)] <- 0
 #corre <- apply(corre,2,sort,decreasing=T)
 
-#ggplot
+#Heatmap 
 # get rownames
 corre["names"] <- rownames(corre)
 df <- melt(corre,id.vars="names")
 df$names <- factor(df$names,levels=names(nr))
 
-ggplot(df, aes(names, variable)) + 
+g1 <- ggplot(df, aes(names, variable)) + 
    geom_tile(aes(fill = value), colour = "white") + 
    scale_fill_gradient(low = "darkblue",high = "yellow",na.value="white") +
    theme_bw()+labs(x = "", y = "")+
-   theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank())
+   theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(),
+     legend.position="right")
 
+#Remove legend to add to own square
+get_legend<-function(myggplot){
+  tmp <- ggplot_gtable(ggplot_build(myggplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
+}
+legend <- get_legend(g1)
+g1 <- g1+theme(legend.position="none")
 
-#Sidoplottar
+#Margin plots
 left <- data.frame(name=1:length(n),value=round(100*n/length(n),0))
 top <- data.frame(name=1:length(nr),value=round(100*nr/length(nr),0))
-gleft <- ggplot(left, aes(name,value))+geom_line()+ geom_line(stat="identity")+theme_bw()+labs(x = "", y = "")+
-   theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank())
 
-gtop <- ggplot(top, aes(y=name,x=value)) + geom_line()+theme_bw()+labs(x = "", y = "")+
-   theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank())
+gleft <- ggplot(left, aes(x=name,y=value))+geom_line()+ geom_line(stat="identity")+theme_bw()+labs(x = "", y = "")+
+  ylim(c(0,100))+xlim(c(1,182))+
+  coord_flip()+ 
+  ggtitle("Percent values below detection limit per protein")+ 
+    theme(
+     axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(),
+     plot.margin = unit(c(0,0,-0.5,0),"cm"),
+     panel.margin = unit(c(0,0,-0.5,0),"cm"),
+     plot.title = element_text(size=10))
+
+gtop <- ggplot(top, aes(x=name,y=value)) + geom_line()+theme_bw()+labs(x = "", y = "")+
+  ylim(c(0,100))+xlim(c(1,133))+
+  ggtitle("Percent values below detection limit per indivual")+
+  theme(
+     axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(),
+     plot.margin = unit(c(0,0,-0.5,0),"cm"),
+     panel.margin = unit(c(0,0,-0.5,0),"cm"),
+     plot.title = element_text(size=10))
+     
+
+#Grid-arrange plot
+lay <- rbind(c(NA,1,1,2),
+             c(3,4,4,2),
+             c(3,4,4,2))
+             
+grid.arrange(gtop,legend,gleft,g1,layout_matrix=lay,widths=c(0.75,2,2,0.5),heights=c(0.75,2,2)) #7*10 inches
+
+
+
+
+#ggMarginal
+g1 <- ggplot(df, aes(names, variable)) + 
+   geom_tile(aes(fill = value), colour = "white") + 
+   scale_fill_gradient(low = "darkblue",high = "yellow",na.value="white") +
+   theme_bw()+labs(x = "", y = "")+
+   theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(),
+     legend.position="left")
+
+ggMarginal(g1+
+  theme_bw()+
+  labs(x = "", y = "")+
+  theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(),
+  legend.position="left"),
+  data=top,x="value",y="name")
 
 ```
 
