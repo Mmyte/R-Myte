@@ -5,6 +5,8 @@ date: "16 augusti 2016"
 output: html_document
 ---
 
+
+##Importera data
 ```{r,echo=FALSE,message=FALSE}
 
 ######### Packages RUN ########################### 
@@ -26,6 +28,7 @@ library(survival)
 library(KMsurv)
 library(rms)
 library(dplyr)
+library(tidyr)
 library(Rgraphviz)
 library(forestplot)
 library(corrplot)
@@ -46,32 +49,52 @@ p.inflam = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia
                             rows=1:267,
                            sheet=1, 
                            skipEmptyRows=FALSE)
+p.inflamlod = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/NPX and linear_INF.xlsx",
+                            rows=1:267,
+                           sheet=2, 
+                           skipEmptyRows=FALSE)
 #p.inflam <- p.inflam[1:266,]
 p.onc = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/NPX and linear_ONCII.xlsx",
                            rows=1:270,
                           sheet=1, 
+                           skipEmptyRows=FALSE)
+p.onclod = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/NPX and linear_ONCII.xlsx",
+                           rows=1:270,
+                          sheet=2, 
                            skipEmptyRows=FALSE)
 #p.onc <- p.onc[1:269,]
 phen = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/phenotypdata.xlsx",
                            sheet=1, 
                            skipEmptyRows=FALSE)
 
+
+
 #merge
 phen["id"] <- phen$pat_code
-p.inflam["id"] <- as.numeric(p.inflam$NPX)
-p.onc["id"] <- as.numeric(p.onc$NPX)
-#
+p.inflam["id"] <- p.inflamlod["id"] <- as.numeric(p.inflam$NPX)
+p.onc["id"] <- p.onclod["id"] <- as.numeric(p.onc$NPX)
+#na
 datx <- merge(p.inflam,p.onc,by="id")
 dat1 <- merge(phen,datx,by="id")
+
+datx <- merge(p.inflamlod,p.onclod,by="id")
+dat2 <- merge(phen,datx,by="id")
 
 #Borttagna flagged prover: (11 stycken), stämmer överrens med OLINKs lista. 
 phen[!(phen$id %in% dat1$id),"pat_code"]
 
 #ta bort variabler
-dat1 <- select(dat1,-contains("NPX")) %>%
-        select(-contains("Flagged"))
+dat1 <- select(dat1,-contains("NPX"),-contains("Flagged"))
+        
+#ta bort variabler
+dat2 <- select(dat2,-contains("NPX"),-contains("Flagged"),-contains("Chip"),-contains("MissData"),-contains("S-Type"))
 
-#Samma variabler i onc och infl panel?
+```
+
+
+
+Samma variabler i onc och infl panel?
+```{r,echo=F}
 on <- names(p.onc)[2:93]
 inf <- names(p.inflam)[2:91]
 on <- substr(on,5,nchar(on))
@@ -80,20 +103,96 @@ inf <- substr(inf,5,nchar(inf))
 inf[inf %in% on]
 on[on %in% inf]
 
-View(select(dat1,contains("VEGF")))
-View(select(dat1,contains("HGF")))
-
-s```
-
+summary(select(dat1,contains("VEGF-A")))
+summary(select(dat1,contains("HGF")))
+```
 
 
 
 
-Descriptives:
+##Descriptive statistics:
+
+
 ```{r,echo=F}
 summary(dat1)
 glimpse(dat1)
 
+
+```
+
+#heatmap of levels
+```{r,echo=F}
+corre <- filter(dat1,provnr==1)%>%
+          select(starts_with("1"))
+dim(corre)
+
+#sort columns
+n <- apply(corre,2,function(x) sum(is.na(x)))
+n <- sort(n,decreasing=T)
+corre <- corre[names(n)]
+
+#sort rows according to ammount of NA
+nr <- apply(corre,1,function(x) sum(is.na(x)))
+names(nr) <- 1:length(nr)
+nr <- sort(nr,decreasing=F)
+#corre[is.na(corre)] <- 0
+#corre <- apply(corre,2,sort,decreasing=T)
+
+#ggplot
+# get rownames
+corre["names"] <- rownames(corre)
+df <- melt(corre,id.vars="names")
+df$names <- factor(df$names,levels=names(nr))
+
+ggplot(df, aes(names, variable)) + 
+   geom_tile(aes(fill = value), colour = "white") + 
+   scale_fill_gradient(low = "darkblue",high = "yellow",na.value="white") +
+   theme_bw()+labs(x = "", y = "")+
+   theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank())
+
+
+#Sidoplottar
+left <- data.frame(name=1:length(n),value=round(100*n/length(n),0))
+top <- data.frame(name=1:length(nr),value=round(100*nr/length(nr),0))
+gleft <- ggplot(left, aes(name,value))+geom_line()+ geom_line(stat="identity")+theme_bw()+labs(x = "", y = "")+
+   theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank())
+
+gtop <- ggplot(top, aes(y=name,x=value)) + geom_line()+theme_bw()+labs(x = "", y = "")+
+   theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank())
+
+```
+
+
+
+#Correlations between markers
+
+```{r,echo=F}
+
+corre <- filter(dat1,provnr==1)%>%
+          select(starts_with("1"))
+dim(corre)
+#cor0 <- cor(corre,method="spearman",use="pairwise.complete.obs")
+
+#Heatmap 2 : 8*10 inches works good
+
+heat <- t(as.matrix(corre))
+dist.pear <- function(x) as.dist(1-cor(t(x),method="spearman",use="pairwise.complete.obs"))
+myclust <- function(x) hclust(x, method="average")
+#heatmap.2(heat,col=bluered, trace="none", distfun=dist.pear, hclustfun=hclust.ave)
+heatmap.2(cor0,dendrogram = "row",distfun = dist.pear,hclustfun=myclust,trace="none",col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
+
+
+#PCA (NOT SHOWN)
+
+corre[,-1] <- scale(corre[,-1])
+con <- na.omit(corre)
+pca <- prcomp(con[,-c(1,2,3,4)],center = FALSE,scale. = FALSE) 
+pca;summary(pca)
+plot(pca,type="l")
+
+pca1 <- data.frame(prov=con[,1],pca$x[,1:4])
+
+scatterplotMatrix(~PC1+PC2+PC3+PC4|prov, data=pca1,main="PCA",by.groups=F,smoother=F,reg.line=F,col=c("dodgerblue","firebrick"),pch=c(18,20))
 
 ```
 
