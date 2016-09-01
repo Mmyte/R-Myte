@@ -13,30 +13,19 @@ output: html_document
 library(cluster)
 library(Hmisc)
 library(FactoMineR)
-library("bnlearn")
-library("Rgraphviz")
 library(mgcv)
 library(car)
 library(boot)
-library(NMF)
 library(gdata)
 library(gplots)
 library(xlsx)
-library(HardyWeinberg)
-library(ggm)
 library(survival)
-library(KMsurv)
-library(rms)
 library(dplyr)
 library(tidyr)
-library(Rgraphviz)
-library(forestplot)
-library(corrplot)
 library(reshape)
 library(ENmix)
 library(gdata)                
 library(ggExtra)
-
 #Functions
 source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
 source("~/Dropbox/Documents/JOBB ONKO/R/confadjust.R")
@@ -69,17 +58,20 @@ phen = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia ear
                            skipEmptyRows=FALSE)
 
 
-
 #merge
 phen["id"] <- phen$pat_code
 p.inflam["id"] <- p.inflamlod["id"] <- as.numeric(p.inflam$NPX)
 p.onc["id"] <- p.onclod["id"] <- as.numeric(p.onc$NPX)
-#na
+
+#NA-data
 datx <- merge(p.inflam,p.onc,by="id")
 dat1 <- merge(phen,datx,by="id")
+dat1 <- unite(dat1,"person",caseset,casecontrol,remove=FALSE)
 
+#LOD-data
 datx <- merge(p.inflamlod,p.onclod,by="id")
 dat2 <- merge(phen,datx,by="id")
+dat2 <- unite(dat2,"person",caseset,casecontrol,remove=FALSE)
 
 #Borttagna flagged prover: (11 stycken), stämmer överrens med OLINKs lista. 
 phen[!(phen$id %in% dat1$id),"pat_code"]
@@ -90,8 +82,34 @@ dat1 <- select(dat1,-contains("NPX"),-contains("Flagged"))
 #ta bort variabler
 dat2 <- select(dat2,-contains("NPX"),-contains("Flagged"),-contains("Chip"),-contains("MissData"),-contains("S-Type"))
 
-```
+summary(dat1)
 
+#data med ratios:
+#Hur många har repeated? 
+length(table(dat1$person)[table(dat1$person)==2])
+#de som inte har repeated:
+ejrep <- names(table(dat1$person)[table(dat1$person)<2])
+
+d1 <- filter(dat1,provnr==1) %>% filter(!(person %in% ejrep))
+d2 <- filter(dat1,provnr==2) %>% filter(!(person %in% ejrep))
+
+dat1r <- merge(d1,d2,by="person",all=T)
+dat1r <- select(dat1r,-contains("NPX"),-contains("Flagged"),-contains("Chip"),-contains("MissData"),-contains("S-Type"))
+
+#check så det stämmer:
+sum(dat1r$gender.x==dat1r$gender.y)
+sum(dat1r$caseset.x==dat1r$caseset.y)
+sum(dat1r$birth.x==dat1r$birth.y)
+
+#Skapa ratio-variabler:
+#summary(dat1r[,c("langd.x","vikt.x","101_IL-8.x","102_VEGF-A.x.x","103_BDNF.x")]/dat1r[,c(c("langd.y","vikt.y","101_IL-8.y","102_VEGF-A.x.y","103_BDNF.y"))])
+
+dat1r[,13:196] <- dat1r[,13:196]/dat1r[,208:391]
+dat1r <- dat1r[,1:196]
+substr(names(dat1r),2)
+names(dat1r) <- gsub("\\.x", "", names(dat1r))
+
+```
 
 
 Samma variabler i onc och infl panel?
@@ -218,22 +236,45 @@ ggMarginal(g1+
 #Correlations between markers
 
 ```{r,echo=F}
-
-corre <- filter(dat1,provnr==1)%>%
+#correlations prov 1
+corre1 <- filter(dat1,provnr==1)%>%
           select(starts_with("1"))
-dim(corre)
-#cor0 <- cor(corre,method="spearman",use="pairwise.complete.obs")
+dim(corre1)
+cor1 <- cor(corre1,method="spearman",use="pairwise.complete.obs")
+#cor1[is.na(cor1)] <- 0
+
+#correlations prov 2
+corre2 <- filter(dat1,provnr==2)%>%
+          select(starts_with("1"))
+dim(corre2)
+cor2 <- cor(corre2,method="spearman",use="pairwise.complete.obs")
+#cor2[is.na(cor2)] <- 0
+
+#Correlations ratios:
+corre3 <- select(dat1r,starts_with("1"))
+dim(corre3)
+cor3 <- cor(corre3,method="spearman",use="pairwise.complete.obs")
+#cor3[is.na(cor3)] <- 0
+
 
 #Heatmap 2 : 8*10 inches works good
-
 heat <- t(as.matrix(corre))
 dist.pear <- function(x) as.dist(1-cor(t(x),method="spearman",use="pairwise.complete.obs"))
 myclust <- function(x) hclust(x, method="average")
 #heatmap.2(heat,col=bluered, trace="none", distfun=dist.pear, hclustfun=hclust.ave)
-heatmap.2(cor0,dendrogram = "row",distfun = dist.pear,hclustfun=myclust,trace="none",col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
+heatmap.2(heat,dendrogram = "row",
+          distfun = dist.pear,
+          hclustfun = myclust,
+          trace="none",
+          col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
+
+```
 
 
 #PCA (NOT SHOWN)
+
+```{r,echo=F}
+
 
 corre[,-1] <- scale(corre[,-1])
 con <- na.omit(corre)
@@ -248,4 +289,31 @@ scatterplotMatrix(~PC1+PC2+PC3+PC4|prov, data=pca1,main="PCA",by.groups=F,smooth
 ```
 
 
+
+##Associations biomarkers vs lifestyle
+
+
+Prov 1:
+
+```{r,echo=F}
+
+```
+
+
+
+Prov 2:
+
+```{r,echo=F}
+
+```
+
+
+
+
+Ratio prov 1 och 2:
+
+
+```{r,echo=F}
+
+```
 
