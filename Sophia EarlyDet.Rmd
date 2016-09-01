@@ -13,19 +13,19 @@ output: html_document
 library(cluster)
 library(Hmisc)
 library(FactoMineR)
+library(GenABEL)
 library(mgcv)
 library(car)
 library(boot)
 library(gdata)
 library(gplots)
 library(xlsx)
-library(survival)
-library(dplyr)
-library(tidyr)
 library(reshape)
 library(ENmix)
 library(gdata)                
 library(ggExtra)
+library(dplyr)
+library(tidyr)
 #Functions
 source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
 source("~/Dropbox/Documents/JOBB ONKO/R/confadjust.R")
@@ -78,13 +78,20 @@ phen[!(phen$id %in% dat1$id),"pat_code"]
 
 #ta bort variabler
 dat1 <- select(dat1,-contains("NPX"),-contains("Flagged"))
-        
-#ta bort variabler
 dat2 <- select(dat2,-contains("NPX"),-contains("Flagged"),-contains("Chip"),-contains("MissData"),-contains("S-Type"))
 
 summary(dat1)
 
-#data med ratios:
+#Data transformation: 182 proteiner
+
+```
+
+
+RATIO data
+```{r,echo=F}
+
+
+#RATIO DATA:
 #Hur många har repeated? 
 length(table(dat1$person)[table(dat1$person)==2])
 #de som inte har repeated:
@@ -104,10 +111,36 @@ sum(dat1r$birth.x==dat1r$birth.y)
 #Skapa ratio-variabler:
 #summary(dat1r[,c("langd.x","vikt.x","101_IL-8.x","102_VEGF-A.x.x","103_BDNF.x")]/dat1r[,c(c("langd.y","vikt.y","101_IL-8.y","102_VEGF-A.x.y","103_BDNF.y"))])
 
-dat1r[,13:196] <- dat1r[,13:196]/dat1r[,208:391]
+#dat1r[,13:196] <- dat1r[,208:391]/dat1r[,13:196]
+dat1r[,13:196] <- dat1r[,208:391]-dat1r[,13:196]
 dat1r <- dat1r[,1:196]
-substr(names(dat1r),2)
+
 names(dat1r) <- gsub("\\.x", "", names(dat1r))
+
+#RATIO DATA: LOD
+#Hur många har repeated? 
+length(table(dat2$person)[table(dat2$person)==2])
+#de som inte har repeated:
+ejrep <- names(table(dat2$person)[table(dat2$person)<2])
+
+d1 <- filter(dat2,provnr==1) %>% filter(!(person %in% ejrep))
+d2 <- filter(dat2,provnr==2) %>% filter(!(person %in% ejrep))
+
+dat2r <- merge(d1,d2,by="person",all=T)
+dat2r <- select(dat2r,-contains("NPX"),-contains("Flagged"),-contains("Chip"),-contains("MissData"),-contains("S-Type"))
+
+#check så det stämmer:
+sum(dat2r$gender.x==dat2r$gender.y)
+sum(dat2r$caseset.x==dat2r$caseset.y)
+sum(dat2r$birth.x==dat2r$birth.y)
+
+#Skapa ratio-variabler:
+#summary(dat2r[,c("langd.x","vikt.x","101_IL-8.x","102_VEGF-A.x.x","103_BDNF.x")]/dat2r[,c(c("langd.y","vikt.y","101_IL-8.y","102_VEGF-A.x.y","103_BDNF.y"))])
+
+#dat2r[,13:199] <- dat2r[,211:397]/dat2r[,13:199]
+dat2r[,13:199] <- dat2r[,211:397]-dat2r[,13:199]
+dat2r <- dat2r[,1:199]
+names(dat2r) <- gsub("\\.x", "", names(dat2r))
 
 ```
 
@@ -128,13 +161,17 @@ summary(select(dat1,contains("HGF")))
 
 
 
-
 ##Descriptive statistics:
 
 
 ```{r,echo=F}
 summary(dat1)
 glimpse(dat1)
+
+corre <- select(dat1,provnr,starts_with("1"))
+datn  <- melt(corre,id="provnr")
+
+ggplot(datn,aes(x=value,fill=as.factor(provnr)))+geom_histogram()+theme_bw()+facet_grid(variable ~ .)
 
 
 ```
@@ -232,6 +269,36 @@ ggMarginal(g1+
 ```
 
 
+Cluster analysis heatmap ratios:
+
+```{r,echo=F}
+
+con <- dat2r[,c(8,15:ncol(dat2r))]
+con[,-1] <- scale(con[,-1])
+
+heat <- as.matrix(con[,-c(1)])
+heat <- t(heat)
+
+#grouping
+fcol <- ifelse(con$casecontrol==1,"firebrick","green")
+
+#distance/cluster functions
+mydist=function(c) {dist(c,method="euclidian")}
+myclust=function(c) {hclust(c,method="complete")}
+
+#heatmap
+heatmap.2(heat,
+          dendrogram = "both",
+          trace="none",
+          hclustfun=myclust,
+          distfun =mydist,col=bluered(256),
+          margins=c(6,12),srtCol=90,ColSideColors=fcol,key.title="Color key",key.xlab="standardized log-concentration")
+
+legend("topright", legend = c("Case", "Control"),fill=c("firebrick","green"),border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
+#legend("topright", legend = c("F840","F845","Control","Missing"),fill=c("green","blue","firebrick","black"),border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
+```
+
+
 
 #Correlations between markers
 
@@ -296,7 +363,23 @@ scatterplotMatrix(~PC1+PC2+PC3+PC4|prov, data=pca1,main="PCA",by.groups=F,smooth
 Prov 1:
 
 ```{r,echo=F}
+alpha <- 0.05/182
 
+dat21 <- filter(dat2,provnr==1)
+dat <- select(dat21,starts_with("1"))
+
+#calculate models
+models1 <- lapply(dat, function(q){
+   glm(q ~ dat21$casecontrol+dat21$gender+dat21$langd+dat21$vikt)
+    })
+
+#get p-values from anova.glm
+ps <- lapply(models1,function(x) data.frame(var=names(coef(x)),coef=coef(x),p=anova(x,test="Chisq")$`Pr(>Chi)`))
+
+#extract significant associations
+sign <- lapply(ps,function(x) na.omit(x[x$p<=alpha,]))
+sign1 <- do.call(rbind, lapply(sign, data.frame, stringsAsFactors=FALSE)) #transform to data frame
+sign1
 ```
 
 
@@ -304,7 +387,23 @@ Prov 1:
 Prov 2:
 
 ```{r,echo=F}
+alpha <- 0.05/182
 
+dat21 <- filter(dat2,provnr==2)
+dat <- select(dat21,starts_with("1"))
+
+#calculate models
+models1 <- lapply(dat, function(q){
+   glm(q ~ dat21$casecontrol+dat21$gender+dat21$langd+dat21$vikt)
+    })
+
+#get p-values from anova.glm
+ps <- lapply(models1,function(x) data.frame(var=names(coef(x)),coef=coef(x),p=anova(x,test="Chisq")$`Pr(>Chi)`))
+
+#extract significant associations
+sign <- lapply(ps,function(x) na.omit(x[x$p<=alpha,]))
+sign2 <- do.call(rbind, lapply(sign, data.frame, stringsAsFactors=FALSE)) #transform to data frame
+sign2
 ```
 
 
@@ -314,6 +413,23 @@ Ratio prov 1 och 2:
 
 
 ```{r,echo=F}
+alpha <- 0.05/182
+
+dat <- select(dat2r,starts_with("1"))
+
+#calculate models
+models1 <- lapply(dat, function(q){
+   glm(q ~ dat2r$casecontrol+dat2r$gender+dat2r$langd+dat2r$vikt)
+    })
+
+#get p-values from anova.glm
+ps <- lapply(models1,function(x) data.frame(var=names(coef(x)),coef=coef(x),p=anova(x,test="Chisq")$`Pr(>Chi)`))
+
+#extract significant associations
+sign <- lapply(ps,function(x) na.omit(x[x$p<=alpha,]))
+sign3 <- do.call(rbind, lapply(sign, data.frame, stringsAsFactors=FALSE)) #transform to data frame
+sign3
+
 
 ```
 
