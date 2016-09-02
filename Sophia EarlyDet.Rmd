@@ -168,10 +168,10 @@ summary(select(dat1,contains("HGF")))
 summary(dat1)
 glimpse(dat1)
 
-corre <- select(dat1,provnr,starts_with("1"))
-datn  <- melt(corre,id="provnr")
+#corre <- select(dat1,provnr,starts_with("1"))
+#datn  <- melt(corre,id="provnr")
 
-ggplot(datn,aes(x=value,fill=as.factor(provnr)))+geom_histogram()+theme_bw()+facet_grid(variable ~ .)
+#ggplot(datn,aes(x=value,fill=as.factor(provnr)))+geom_histogram()+theme_bw()+facet_wrap(~variable)
 
 
 ```
@@ -300,42 +300,6 @@ legend("topright", legend = c("Case", "Control"),fill=c("firebrick","green"),bor
 
 
 
-#Correlations between markers
-
-```{r,echo=F}
-#correlations prov 1
-corre1 <- filter(dat1,provnr==1)%>%
-          select(starts_with("1"))
-dim(corre1)
-cor1 <- cor(corre1,method="spearman",use="pairwise.complete.obs")
-#cor1[is.na(cor1)] <- 0
-
-#correlations prov 2
-corre2 <- filter(dat1,provnr==2)%>%
-          select(starts_with("1"))
-dim(corre2)
-cor2 <- cor(corre2,method="spearman",use="pairwise.complete.obs")
-#cor2[is.na(cor2)] <- 0
-
-#Correlations ratios:
-corre3 <- select(dat1r,starts_with("1"))
-dim(corre3)
-cor3 <- cor(corre3,method="spearman",use="pairwise.complete.obs")
-#cor3[is.na(cor3)] <- 0
-
-
-#Heatmap 2 : 8*10 inches works good
-heat <- t(as.matrix(corre))
-dist.pear <- function(x) as.dist(1-cor(t(x),method="spearman",use="pairwise.complete.obs"))
-myclust <- function(x) hclust(x, method="average")
-#heatmap.2(heat,col=bluered, trace="none", distfun=dist.pear, hclustfun=hclust.ave)
-heatmap.2(heat,dendrogram = "row",
-          distfun = dist.pear,
-          hclustfun = myclust,
-          trace="none",
-          col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
-
-```
 
 
 #PCA (NOT SHOWN)
@@ -360,13 +324,20 @@ scatterplotMatrix(~PC1+PC2+PC3+PC4|prov, data=pca1,main="PCA",by.groups=F,smooth
 ##Associations biomarkers vs lifestyle
 
 
-Prov 1:
+Prov 1: (zntransform on model before does not change sign covariates)
 
 ```{r,echo=F}
-alpha <- 0.05/182
+alpha <- 0.05/182 #alpha level bonferroni corrected
 
-dat21 <- filter(dat2,provnr==1)
+dat21 <- filter(dat1,provnr==1)
 dat <- select(dat21,starts_with("1"))
+
+#variables with many NAs
+na <- apply(dat,2,function(x) sum(is.na(x))/length(x))
+plot(na)
+manyna <- names(na[na>=0.8])
+#remove them:
+dat <- select(dat,-one_of(manyna))
 
 #calculate models
 models1 <- lapply(dat, function(q){
@@ -380,6 +351,35 @@ ps <- lapply(models1,function(x) data.frame(var=names(coef(x)),coef=coef(x),p=an
 sign <- lapply(ps,function(x) na.omit(x[x$p<=alpha,]))
 sign1 <- do.call(rbind, lapply(sign, data.frame, stringsAsFactors=FALSE)) #transform to data frame
 sign1
+
+#test
+s <- step(models1$"101_IL-8",direction="backward",test="F")
+
+
+#calculate models with foor loop
+var <- names(dat)
+mod <- matrix(nrow=ncol(dat),ncol=4)
+colnames(mod) <- c("Case","Gender","Length","Weight")
+cov <- c("casecontrol","gender","langd","vikt")
+rownames(mod) <- var
+rdata1 <- dat
+j=0
+for(i in var){
+  j=j+1
+  #MODEL
+  moddat <- na.omit(dat21[,c(i,cov)])
+  g <- glm(moddat[,i]~.,data=moddat[,-1]) #fit model remove NAs
+  #ANOVA
+  a <-   anova(g,test="Chisq")
+  mod[j,] <- a$`Pr(>Chi)`[-1]
+  #TRANSFORM data for correlation analysis
+  covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<alpha][-1]) #get significant covariates + casecontrol status
+  rdata1[,j] <- rntransform(dat21[,i],data=dat21[,covt],family="gaussian") 
+}
+
+mod1 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0)) 
+sign11 <- mutate(mod1,any.sign=rowSums(mod1[2:5])) %>% filter(any.sign>0) #get significant variables 
+sign11
 ```
 
 
@@ -389,8 +389,15 @@ Prov 2:
 ```{r,echo=F}
 alpha <- 0.05/182
 
-dat21 <- filter(dat2,provnr==2)
+dat21 <- filter(dat1,provnr==2)
 dat <- select(dat21,starts_with("1"))
+
+#variables with many NAs
+na <- apply(dat,2,function(x) sum(is.na(x))/length(x))
+plot(na)
+manyna <- names(na[na>=0.8])
+#remove them:
+dat <- select(dat,-one_of(manyna))
 
 #calculate models
 models1 <- lapply(dat, function(q){
@@ -404,6 +411,22 @@ ps <- lapply(models1,function(x) data.frame(var=names(coef(x)),coef=coef(x),p=an
 sign <- lapply(ps,function(x) na.omit(x[x$p<=alpha,]))
 sign2 <- do.call(rbind, lapply(sign, data.frame, stringsAsFactors=FALSE)) #transform to data frame
 sign2
+
+
+#calculate models with foor loop
+var <- names(dat)
+mod <- matrix(nrow=ncol(dat),ncol=4)
+colnames(mod) <- c("Case","Gender","Length","Weight")
+rownames(mod) <- var
+j=0
+for(i in var){
+  j=j+1
+  g <- glm(dat[,i] ~ casecontrol+gender+langd+vikt,data=dat21)
+  mod[j,] <- anova(g,test="Chisq")$`Pr(>Chi)`[-1]
+}
+mod1 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0))
+sign22 <- mutate(mod1,any.sign=rowSums(mod1[2:5])) %>% filter(any.sign>0)
+sign22
 ```
 
 
@@ -415,11 +438,18 @@ Ratio prov 1 och 2:
 ```{r,echo=F}
 alpha <- 0.05/182
 
-dat <- select(dat2r,starts_with("1"))
+dat <- select(dat1r,starts_with("1"))
+
+#variables with many NAs
+na <- apply(dat,2,function(x) sum(is.na(x))/length(x))
+plot(na)
+manyna <- names(na[na>=0.8])
+#remove them:
+dat <- select(dat,-one_of(manyna))
 
 #calculate models
 models1 <- lapply(dat, function(q){
-   glm(q ~ dat2r$casecontrol+dat2r$gender+dat2r$langd+dat2r$vikt)
+   glm(q ~ dat1r$casecontrol+dat1r$gender+dat1r$langd+dat1r$vikt)
     })
 
 #get p-values from anova.glm
@@ -431,5 +461,67 @@ sign3 <- do.call(rbind, lapply(sign, data.frame, stringsAsFactors=FALSE)) #trans
 sign3
 
 
+#calculate models with foor loop
+var <- names(dat)
+mod <- matrix(nrow=ncol(dat),ncol=4)
+colnames(mod) <- c("Case","Gender","Length","Weight")
+rownames(mod) <- var
+j=0
+for(i in var){
+  j=j+1
+  g <- glm(dat[,i] ~ casecontrol+gender+langd+vikt,data=dat1r)
+  mod[j,] <- anova(g,test="Chisq")$`Pr(>Chi)`[-1]
+}
+mod1 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0))
+sign33 <- mutate(mod1,any.sign=rowSums(mod1[2:5])) %>% filter(any.sign>0)
+sign33
 ```
+
+
+
+
+
+#Correlations between markers
+
+```{r,echo=F}
+#correlations prov 1
+cor1 <- cor(rdata1,method="spearman",use="pairwise.complete.obs")
+#cor1[is.na(cor1)] <- 0
+
+#correlations prov 2
+corre2 <- filter(dat1,provnr==2)%>%
+          select(starts_with("1"))
+dim(corre2)
+cor2 <- cor(corre2,method="spearman",use="pairwise.complete.obs")
+#cor2[is.na(cor2)] <- 0
+
+#Correlations ratios:
+corre3 <- select(dat1r,starts_with("1"))
+dim(corre3)
+cor3 <- cor(corre3,method="spearman",use="pairwise.complete.obs")
+#cor3[is.na(cor3)] <- 0
+
+
+
+
+
+#Heatmap 2 : 8*10 inches works good
+heat <- t(as.matrix(corre))
+dist.pear <- function(x) as.dist(1-cor(t(x),method="spearman",use="pairwise.complete.obs"))
+myclust <- function(x) hclust(x, method="average")
+#heatmap.2(heat,col=bluered, trace="none", distfun=dist.pear, hclustfun=hclust.ave)
+heatmap.2(heat,dendrogram = "row",
+          distfun = dist.pear,
+          hclustfun = myclust,
+          trace="none",
+          col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
+
+```
+
+
+
+
+
+
+
 
