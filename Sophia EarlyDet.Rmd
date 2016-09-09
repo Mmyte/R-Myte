@@ -26,6 +26,9 @@ library(gdata)
 library(ggExtra)
 library(dplyr)
 library(tidyr)
+library(nlme)
+library(broom)
+library(forcats)
 #Functions
 source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
 source("~/Dropbox/Documents/JOBB ONKO/R/confadjust.R")
@@ -35,6 +38,8 @@ source('~/Dropbox/Documents/JOBB ONKO/R/table_myte.R')
 source('~/Dropbox/Documents/JOBB ONKO/R/subtype clog.R')
 
 #Import data
+######## OLINK data ######## 
+#Inflammation
 p.inflam = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/NPX and linear_INF.xlsx",
                             rows=1:267,
                            sheet=1, 
@@ -44,6 +49,7 @@ p.inflamlod = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sop
                            sheet=2, 
                            skipEmptyRows=FALSE)
 #p.inflam <- p.inflam[1:266,]
+#Onco
 p.onc = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/NPX and linear_ONCII.xlsx",
                            rows=1:270,
                           sheet=1, 
@@ -53,36 +59,101 @@ p.onclod = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia
                           sheet=2, 
                            skipEmptyRows=FALSE)
 #p.onc <- p.onc[1:269,]
-phen = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/phenotypdata.xlsx",
-                           sheet=1, 
-                           skipEmptyRows=FALSE)
-
-
-#merge
-phen["id"] <- phen$pat_code
+#MERGE inflam and onc
 p.inflam["id"] <- p.inflamlod["id"] <- as.numeric(p.inflam$NPX)
 p.onc["id"] <- p.onclod["id"] <- as.numeric(p.onc$NPX)
+datx <- merge(p.inflam,p.onc,by="id")
+datlod <- merge(p.inflamlod,p.onclod,by="id")
+#Remove variables
+datx <- dplyr::select(datx,-contains("NPX"),-contains("Flagged"))
+datlod <- dplyr::select(datlod,-contains("Ctrl"),-contains("NPX"),-contains("Flagged"),-contains("Chip"),-contains("MissData"),-contains("S-Type"))
+#Fix variable names
+names(datx) <- gsub('-', '_', names(datx))
+names(datlod) <- gsub('-', '_', names(datlod))
+names(datx)[-1] <- substr(names(datx)[-1],5,nchar(names(datx)[-1]))
+names(datlod)[-1] <- substr(names(datlod)[-1],5,nchar(names(datlod)[-1]))
+
+### MISSING OLINK:
+# percent missing in each variable, endast på datx, datlod har inga missing (ersatt med lowest detectable value)
+na.col <- apply(datx,2,function(x) round(sum(is.na(x))/length(x),2))
+boxplot(na.col)
+na.col[na.col>0.8]
+summary(datx[,names(na.col[na.col>0.8])])
+# percent missing in each obs
+na.row <- apply(datx,1,function(x) round(sum(is.na(x))/length(x),2))
+boxplot(na.row) #Som högst 12 %, så OK
+
+#Select and filter OLINK data
+
+names(datlod)==names(datx) #samma variabler i båda
+var <- names(datlod)[-1] #lista för senare bruk
+#
+######## VIP data ######## 
+#
+phen = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/crc_enkatdata160907.xlsx",
+                           sheet=1, 
+                           skipEmptyRows=FALSE)
+alder = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/phenotypdata.xlsx",
+                           sheet=1, 
+                           skipEmptyRows=FALSE)
+phen <- phen[order(phen$pat_code),]
+alder <- alder[order(alder$pat_code),]
+phen["id"] <- phen$pat_code
+phen["birth"] <- alder$birth
+phen["pdatum"] <- alder$pdatum
+phen["bdatum"] <- as.Date(as.character(phen$birth),'%Y%m%d')
+phen["pdatum2"] <- as.Date(as.character(phen$pdatum),'%Y%m%d')
+phen["age"] <- as.numeric((phen$pdatum2-phen$bdatum))/365
+phen[phen==9999] <- NA
+phen[phen==8888] <- NA
+
+#NYA VARIABLER VIP
+#Select lifestyle variables of interest_:
+summary(phen)
+phen <- dplyr::select(phen,id,casecontrol,caseset,caseset2,provnr,pdatum2,diadat=DIADAT,age,gender,langd,vikt,bmi,skol,stg,blods0,blods2,sbt,dbt,starts_with("med"),smartmed,andra_mediciner,g6,sm_status,sn_status,pa_index,pa_index_miss)
+##nya
+phen["agef"] <- ceiling(phen$age)
+phen["age4"] <- cut(phen$agef,breaks=c(0,40,50,60,70),right=F,labels=c(30,40,50,60))
+phen["bmi3"] <- cut(phen$bmi,breaks=c(0,20,25,30,50),right=F,labels=c(1,2,3,4))
+phen$bmi3 <- fct_relevel(phen$bmi3,"2")
+phen$stg <- log(phen$stg)
+phen["midbp"] <- (phen$sbt+phen$dbt)/2
+phen["med"] <- rowSums(phen[,19:23],na.rm=T) #medicin variable, tar du NÅGON medicin
+phen$med <- as.factor(ifelse(phen$med>0,1,ifelse(phen$med==0&phen$med_C5f==1,0,9999)))
+phen["smoke"] <- as.factor(phen$sm_status)
+levels(phen$smoke) <- c(1,2,0,1,2)
+phen$smoke<- fct_relevel(phen$smoke,"0")
+phen["snus"] <- as.factor(phen$sn_status)
+levels(phen$snus) <- c(1,2,0)
+phen$snus<- fct_relevel(phen$snus,"0")
+#Final remove all uncessesary variables:
+phen <- dplyr::select(phen,-contains("med_"),-smartmed,-andra_mediciner,-sm_status,-sn_status)
+summary(phen)
+
+### MISSING VIP:
+# percent missing in each obs
+na.row <- apply(phen,1,function(x) round(sum(is.na(x))/length(x),2))
+boxplot(na.row) #En individ har missing på 60€ av variablerna, (har bara kön och ålder)
+na.row[na.row>0.6]
+phen[names(na.row[na.row>0.6]),] 
+
+#Select and filter phen data
+phen <- filter(phen,id!=phen[names(na.row[na.row>0.6]),"id"])
+
+######## merge PHEN och OLINK data ######## 
+#
 
 #NA-data
-datx <- merge(p.inflam,p.onc,by="id")
 dat1 <- merge(phen,datx,by="id")
 dat1 <- unite(dat1,"person",caseset,casecontrol,remove=FALSE)
-
 #LOD-data
-datx <- merge(p.inflamlod,p.onclod,by="id")
-dat2 <- merge(phen,datx,by="id")
+dat2 <- merge(phen,datlod,by="id")
 dat2 <- unite(dat2,"person",caseset,casecontrol,remove=FALSE)
 
 #Borttagna flagged prover: (11 stycken), stämmer överrens med OLINKs lista. 
 phen[!(phen$id %in% dat1$id),"pat_code"]
 
-#ta bort variabler
-dat1 <- select(dat1,-contains("NPX"),-contains("Flagged"))
-dat2 <- select(dat2,-contains("NPX"),-contains("Flagged"),-contains("Chip"),-contains("MissData"),-contains("S-Type"))
 
-summary(dat1)
-
-#Data transformation: 182 proteiner
 
 ```
 
@@ -168,18 +239,23 @@ summary(select(dat1,contains("HGF")))
 summary(dat1)
 glimpse(dat1)
 
+#Några saknar upprepade prover:
+table(dat1$person)[table(dat1$person)<2]
+
+#Histogram för alla variabler
 #corre <- select(dat1,provnr,starts_with("1"))
 #datn  <- melt(corre,id="provnr")
-
 #ggplot(datn,aes(x=value,fill=as.factor(provnr)))+geom_histogram()+theme_bw()+facet_wrap(~variable)
 
 
 ```
 
+
+
 #heatmap of levels
 ```{r,echo=F}
 corre <- filter(dat1,provnr==1)%>%
-          select(starts_with("1"))
+          dplyr::select(one_of(var))
 dim(corre)
 
 #sort columns
@@ -273,14 +349,17 @@ Cluster analysis heatmap ratios:
 
 ```{r,echo=F}
 
-con <- dat2r[,c(8,15:ncol(dat2r))]
-con[,-1] <- scale(con[,-1])
+#con <- dat1[,c(8,15:ncol(dat2r))]
 
+con <- filter(dat2,provnr==1)%>%
+          dplyr::select(one_of(var))
+con[,-1] <- scale(con[,-1])
 heat <- as.matrix(con[,-c(1)])
 heat <- t(heat)
 
 #grouping
-fcol <- ifelse(con$casecontrol==1,"firebrick","green")
+#fcol <- ifelse(con$casecontrol==1,"firebrick","green")
+fcol <- ifelse(con$pa_index==1,"dodgerblue1",ifelse(con$pa_index==2,"dodgerblue2",ifelse(con$pa_index==3,"dodgerblue3","dodgerblue4")))
 
 #distance/cluster functions
 mydist=function(c) {dist(c,method="euclidian")}
@@ -294,7 +373,9 @@ heatmap.2(heat,
           distfun =mydist,col=bluered(256),
           margins=c(6,12),srtCol=90,ColSideColors=fcol,key.title="Color key",key.xlab="standardized log-concentration")
 
-legend("topright", legend = c("Case", "Control"),fill=c("firebrick","green"),border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
+legend("topright", legend = c("1", "2","3","4"),fill=c("dodgerblue2","dodgerblue2","dodgerblue3","dodgerblue4"),border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
+
+#legend("topright", legend = c("Case", "Control"),fill=c("firebrick","green"),border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
 #legend("topright", legend = c("F840","F845","Control","Missing"),fill=c("green","blue","firebrick","black"),border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
 ```
 
@@ -323,50 +404,45 @@ scatterplotMatrix(~PC1+PC2+PC3+PC4|prov, data=pca1,main="PCA",by.groups=F,smooth
 
 ##Associations biomarkers vs lifestyle
 
+Repeated measures analysis:
+
+```{r,echo=F}
+
+
+
+
+```
+
+
 
 Prov 1: (zntransform on model before does not change sign covariates)
 
 ```{r,echo=F}
-alpha <- 0.05/182 #alpha level bonferroni corrected
+#alpha level bonferroni corrected
+alpha <- 0.05/182 
 
+#data
 dat21 <- filter(dat1,provnr==1)
-dat <- select(dat21,starts_with("1"))
+dat21$pa_index <- as.factor(dat21$pa_index)
+dat <- dplyr::select(dat21,one_of(var))
 
 #variables with many NAs
 na <- apply(dat,2,function(x) sum(is.na(x))/length(x))
 plot(na)
-manyna <- names(na[na>=0.8])
-#remove them:
-dat <- select(dat,-one_of(manyna))
-
-#calculate models
-models1 <- lapply(dat, function(q){
-   glm(q ~ dat21$casecontrol+dat21$gender+dat21$langd+dat21$vikt)
-    })
-
-#get p-values from anova.glm
-ps <- lapply(models1,function(x) data.frame(var=names(coef(x)),coef=coef(x),p=anova(x,test="Chisq")$`Pr(>Chi)`))
-
-#extract significant associations
-sign <- lapply(ps,function(x) na.omit(x[x$p<=alpha,]))
-sign1 <- do.call(rbind, lapply(sign, data.frame, stringsAsFactors=FALSE)) #transform to data frame
-sign1
-
-#test
-s <- step(models1$"101_IL-8",direction="backward",test="F")
-
-
+manyna <- names(na[na>=0.5])
+#remove them: no ones to remove
+dat <- dplyr::select(dat,-one_of(manyna))
 #calculate models with foor loop
-var <- names(dat)
-mod <- matrix(nrow=ncol(dat),ncol=4)
-colnames(mod) <- c("Case","Gender","Length","Weight")
-cov <- c("casecontrol","gender","langd","vikt")
-rownames(mod) <- var
+
+cov <- c("casecontrol","age","gender","langd","vikt","pa_index","skol","stg","blods0","blods2","midbp","smoke","snus","med") #what variables to include?
+mod <- matrix(nrow=ncol(dat),ncol=length(cov))
+colnames(mod) <- c("Case","Age","Gender","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
+rownames(mod) <- var1 <- names(dat)
 rdata1 <- dat
 j=0
-for(i in var){
+for(i in var1){
   j=j+1
-  #MODEL
+  #MODE
   moddat <- na.omit(dat21[,c(i,cov)])
   g <- glm(moddat[,i]~.,data=moddat[,-1]) #fit model remove NAs
   #ANOVA
@@ -378,55 +454,58 @@ for(i in var){
 }
 
 mod1 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0)) 
-sign11 <- mutate(mod1,any.sign=rowSums(mod1[2:5])) %>% filter(any.sign>0) #get significant variables 
-sign11
-```
+sign1 <- mutate(mod1,any.sign=rowSums(mod1[2:5])) %>% filter(any.sign>0) #get significant variables 
+sign1
 
+#ggplot(dat21,aes(y=CEACAM5,x=pa_index,fill=pa_index))+geom_boxplot()
+
+```
 
 
 Prov 2:
 
 ```{r,echo=F}
-alpha <- 0.05/182
+#alpha level bonferroni corrected
+alpha <- 0.05/182 
 
+#data
 dat21 <- filter(dat1,provnr==2)
-dat <- select(dat21,starts_with("1"))
+dat21$pa_index <- as.factor(dat21$pa_index)
+dat <- dplyr::select(dat21,one_of(var))
 
 #variables with many NAs
 na <- apply(dat,2,function(x) sum(is.na(x))/length(x))
 plot(na)
-manyna <- names(na[na>=0.8])
-#remove them:
-dat <- select(dat,-one_of(manyna))
+manyna <- names(na[na>=0.5])
+#remove them: no ones to remove
+dat <- dplyr::select(dat,-one_of(manyna))
+#calculate models with foor loop
 
-#calculate models
-models1 <- lapply(dat, function(q){
-   glm(q ~ dat21$casecontrol+dat21$gender+dat21$langd+dat21$vikt)
-    })
+cov <- c("casecontrol","age","gender","langd","vikt","pa_index","skol","stg","blods0","blods2","midbp","smoke","snus","med") #what variables to include?
+mod <- matrix(nrow=ncol(dat),ncol=length(cov))
+colnames(mod) <- c("Case","Age","Gender","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
+rownames(mod) <- var2 <- names(dat)
+rdata1 <- dat
+j=0
+for(i in var2){
+  j=j+1
+  #MODE
+  moddat <- na.omit(dat21[,c(i,cov)])
+  g <- glm(moddat[,i]~.,data=moddat[,-1]) #fit model remove NAs
+  #ANOVA
+  a <-   anova(g,test="Chisq")
+  mod[j,] <- a$`Pr(>Chi)`[-1]
+  #TRANSFORM data for correlation analysis
+  covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<alpha][-1]) #get significant covariates + casecontrol status
+  rdata1[,j] <- rntransform(dat21[,i],data=dat21[,covt],family="gaussian") 
+}
 
-#get p-values from anova.glm
-ps <- lapply(models1,function(x) data.frame(var=names(coef(x)),coef=coef(x),p=anova(x,test="Chisq")$`Pr(>Chi)`))
-
-#extract significant associations
-sign <- lapply(ps,function(x) na.omit(x[x$p<=alpha,]))
-sign2 <- do.call(rbind, lapply(sign, data.frame, stringsAsFactors=FALSE)) #transform to data frame
+mod2 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0)) 
+sign2 <- mutate(mod2,any.sign=rowSums(mod2[2:5])) %>% filter(any.sign>0) #get significant variables 
 sign2
 
+#ggplot(dat21,aes(y=CEACAM5,x=pa_index,fill=pa_index))+geom_boxplot()
 
-#calculate models with foor loop
-var <- names(dat)
-mod <- matrix(nrow=ncol(dat),ncol=4)
-colnames(mod) <- c("Case","Gender","Length","Weight")
-rownames(mod) <- var
-j=0
-for(i in var){
-  j=j+1
-  g <- glm(dat[,i] ~ casecontrol+gender+langd+vikt,data=dat21)
-  mod[j,] <- anova(g,test="Chisq")$`Pr(>Chi)`[-1]
-}
-mod1 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0))
-sign22 <- mutate(mod1,any.sign=rowSums(mod1[2:5])) %>% filter(any.sign>0)
-sign22
 ```
 
 
@@ -447,9 +526,57 @@ manyna <- names(na[na>=0.8])
 #remove them:
 dat <- select(dat,-one_of(manyna))
 
-#calculate models
+#calculate models with foor loop
+var <- names(dat)
+cov <- c("casecontrol","gender","langd","vikt") #what variables to include?
+mod <- matrix(nrow=ncol(dat),ncol=length(cov))
+colnames(mod) <- c("Case","Gender","Length","Weight")
+rownames(mod) <- var
+rdata3 <- dat
+j=0
+for(i in var){
+  j=j+1
+  #MODEL
+  moddat <- na.omit(dat1r[,c(i,cov)])
+  g <- glm(moddat[,i]~.,data=moddat[,-1]) #fit model remove NAs
+  #ANOVA
+  a <-   anova(g,test="Chisq")
+  mod[j,] <- a$`Pr(>Chi)`[-1]
+  #TRANSFORM data for correlation analysis
+  covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<alpha][-1]) #get significant covariates + casecontrol status
+  rdata3[,j] <- rntransform(dat1r[,i],data=dat1r[,covt],family="gaussian") 
+}
+
+mod1 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0)) 
+sign3 <- mutate(mod1,any.sign=rowSums(mod1[2:5])) %>% filter(any.sign>0) #get significant variables 
+sign3
+
+
+
+```
+
+
+
+The same using lapply
+
+```{r,echo=F}
+
+#DATA
+alpha <- 0.05/182 #alpha level bonferroni corrected
+dat21 <- filter(dat1,provnr==1)
+dat <- select(dat21,starts_with("1"))
+
+#variables with many NAs
+na <- apply(dat,2,function(x) sum(is.na(x))/length(x))
+plot(na)
+manyna <- names(na[na>=0.8])
+#remove them:
+dat <- select(dat,-one_of(manyna))
+
+
+#calculate models with LAPPLY
 models1 <- lapply(dat, function(q){
-   glm(q ~ dat1r$casecontrol+dat1r$gender+dat1r$langd+dat1r$vikt)
+   glm(q ~ dat21$casecontrol+dat21$gender+dat21$langd+dat21$vikt)
     })
 
 #get p-values from anova.glm
@@ -457,31 +584,18 @@ ps <- lapply(models1,function(x) data.frame(var=names(coef(x)),coef=coef(x),p=an
 
 #extract significant associations
 sign <- lapply(ps,function(x) na.omit(x[x$p<=alpha,]))
-sign3 <- do.call(rbind, lapply(sign, data.frame, stringsAsFactors=FALSE)) #transform to data frame
-sign3
+sign1 <- do.call(rbind, lapply(sign, data.frame, stringsAsFactors=FALSE)) #transform to data frame
+sign1
+
+#test
+s <- step(models1$"101_IL-8",direction="backward",test="F")
 
 
-#calculate models with foor loop
-var <- names(dat)
-mod <- matrix(nrow=ncol(dat),ncol=4)
-colnames(mod) <- c("Case","Gender","Length","Weight")
-rownames(mod) <- var
-j=0
-for(i in var){
-  j=j+1
-  g <- glm(dat[,i] ~ casecontrol+gender+langd+vikt,data=dat1r)
-  mod[j,] <- anova(g,test="Chisq")$`Pr(>Chi)`[-1]
-}
-mod1 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0))
-sign33 <- mutate(mod1,any.sign=rowSums(mod1[2:5])) %>% filter(any.sign>0)
-sign33
 ```
 
 
 
-
-
-#Correlations between markers
+#Correlations between markers using adjusted and transformed data
 
 ```{r,echo=F}
 #correlations prov 1
@@ -502,9 +616,6 @@ cor3 <- cor(corre3,method="spearman",use="pairwise.complete.obs")
 #cor3[is.na(cor3)] <- 0
 
 
-
-
-
 #Heatmap 2 : 8*10 inches works good
 heat <- t(as.matrix(corre))
 dist.pear <- function(x) as.dist(1-cor(t(x),method="spearman",use="pairwise.complete.obs"))
@@ -518,10 +629,21 @@ heatmap.2(heat,dendrogram = "row",
 
 ```
 
+##Linear mixed models
+
+
+
+```{r,echo=F}
+#endast 1 värde:
+table(dat1$person)[table(dat1$person)<2]
+
+data_struk<-groupedData(vikt~provnr|person,data=dat1[dat1$person %in% c("1_0","1_1","10_0","10_1","11_0","11_1"),]) 
+plot(data_struk)
 
 
 
 
+```
 
 
 
