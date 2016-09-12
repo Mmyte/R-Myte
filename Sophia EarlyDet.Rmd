@@ -26,7 +26,7 @@ library(gdata)
 library(ggExtra)
 library(dplyr)
 library(tidyr)
-library(nlme)
+library(lme4)
 library(broom)
 library(forcats)
 #Functions
@@ -84,9 +84,9 @@ na.row <- apply(datx,1,function(x) round(sum(is.na(x))/length(x),2))
 boxplot(na.row) #Som högst 12 %, så OK
 
 #Select and filter OLINK data
-
 names(datlod)==names(datx) #samma variabler i båda
 var <- names(datlod)[-1] #lista för senare bruk
+
 #
 ######## VIP data ######## 
 #
@@ -126,6 +126,8 @@ phen$smoke<- fct_relevel(phen$smoke,"0")
 phen["snus"] <- as.factor(phen$sn_status)
 levels(phen$snus) <- c(1,2,0)
 phen$snus<- fct_relevel(phen$snus,"0")
+phen[which(is.na(phen$pa_index)==T),"pa_index"] <- 1
+
 #Final remove all uncessesary variables:
 phen <- dplyr::select(phen,-contains("med_"),-smartmed,-andra_mediciner,-sm_status,-sn_status)
 summary(phen)
@@ -134,11 +136,11 @@ summary(phen)
 # percent missing in each obs
 na.row <- apply(phen,1,function(x) round(sum(is.na(x))/length(x),2))
 boxplot(na.row) #En individ har missing på 60€ av variablerna, (har bara kön och ålder)
-na.row[na.row>0.6]
-phen[names(na.row[na.row>0.6]),] 
+na.row[na.row>0.5]
+phen[names(na.row[na.row>0.5]),] 
 
 #Select and filter phen data
-phen <- filter(phen,id!=phen[names(na.row[na.row>0.6]),"id"])
+phen <- filter(phen,id!=phen[names(na.row[na.row>0.5]),"id"])
 
 ######## merge PHEN och OLINK data ######## 
 #
@@ -150,7 +152,7 @@ dat1 <- unite(dat1,"person",caseset,casecontrol,remove=FALSE)
 dat2 <- merge(phen,datlod,by="id")
 dat2 <- unite(dat2,"person",caseset,casecontrol,remove=FALSE)
 
-#Borttagna flagged prover: (11 stycken), stämmer överrens med OLINKs lista. 
+#Borttagna flagged prover: (11 stycken + 1 som saknade phen data), stämmer överrens med OLINKs lista. 
 phen[!(phen$id %in% dat1$id),"pat_code"]
 
 
@@ -386,17 +388,20 @@ legend("topright", legend = c("1", "2","3","4"),fill=c("dodgerblue2","dodgerblue
 #PCA (NOT SHOWN)
 
 ```{r,echo=F}
+con <- filter(dat2,provnr==1)%>%
+          dplyr::select(g6,one_of(var))
+con[,-1] <- scale(con[,-1])
+con <- na.omit(con)
+con$g6 <- as.factor(con$g6)
+levels(con$g6) <- c(1,2,3,4,4) #Slå ihop grupper G6
 
-
-corre[,-1] <- scale(corre[,-1])
-con <- na.omit(corre)
-pca <- prcomp(con[,-c(1,2,3,4)],center = FALSE,scale. = FALSE) 
+pca <- prcomp(con[,-c(1)],center = FALSE,scale. = FALSE) 
 pca;summary(pca)
 plot(pca,type="l")
 
-pca1 <- data.frame(prov=con[,1],pca$x[,1:4])
+pca1 <- data.frame(prov=con[,1],pca$x[,1:5])
 
-scatterplotMatrix(~PC1+PC2+PC3+PC4|prov, data=pca1,main="PCA",by.groups=F,smoother=F,reg.line=F,col=c("dodgerblue","firebrick"),pch=c(18,20))
+scatterplotMatrix(~PC1+PC2+PC3+PC4+PC5|prov, data=pca1,main="PCA",by.groups=F,smoother=F,reg.line=F,col=c("red","blue","green","purple"),pch=c(18,20,22,24))
 
 ```
 
@@ -407,12 +412,126 @@ scatterplotMatrix(~PC1+PC2+PC3+PC4|prov, data=pca1,main="PCA",by.groups=F,smooth
 Repeated measures analysis:
 
 ```{r,echo=F}
+#Några saknar upprepade prover: Samma om man använder LOB eller NA data
+id2 <- names(table(dat2$person)[table(dat2$person)<2])
+dat.lme <- dplyr::filter(dat2,!person %in% id2)
 
+#### repeated sample dat före och efter:
+#alpha level bonferroni corrected
+alpha <- 0.05/182 
+
+#data
+#dat.lme["phys"] <- dat.lme$pa_index
+dat.lme["phys"] <- dat.lme$g6
+dat.1 <- filter(dat.lme,provnr==1);dat.1 <- dat.1[order(dat.1$person),]
+dat.2 <- filter(dat.lme,provnr==2);dat.2 <- dat.2[order(dat.2$person),]
+sum(dat.1$person==dat.2$person)
+#View(dat.2[,9:21]-dat.1[9:21]) #Hur mkt har livsstilsvariaberna ändrats på 10 år?
+#View(dat.rep[,c("pa_index.x","pa_index.y","g6.x","g6.y")]) Physical activity?
+dat.rep <- merge(x=dat.1,y=dat.2,by="person")
+dim(dat.rep)
+
+#dat.rep$phys.x <- as.factor(dat.rep$phys.x)
+#levels(dat.rep$phys.x) <- c(1,2,3,4,4) #Slå ihop grupper G6
+dat.11 <- dplyr::select(dat.1,one_of(var))
+dat.22 <- dplyr::select(dat.2,one_of(var))
+
+#variables with many NAs
+na1 <- apply(dat.11,2,function(x) sum(is.na(x))/length(x))
+na2 <- apply(dat.22,2,function(x) sum(is.na(x))/length(x))
+#plot(na1)
+#plot(na2)
+manyna1 <- names(na1[na1>=0.5])
+manyna2 <- names(na2[na2>=0.5])
+#remove them: no ones to remove
+#dat <- dplyr::select(dat.11,-one_of(unique(c(manyna1,manyna2))))
+
+
+#calculate models with foor loop
+cov <- c("casecontrol","age","gender","langd","vikt","phys","skol","stg","blods0","blods2","midbp","smoke","snus","med") #what variables to include?
+cov <- paste(cov,"x",sep=".")
+modd <- mod <- matrix(nrow=ncol(dat),ncol=length(cov)+1)
+colnames(modd) <-colnames(mod) <- c("Baseline","Case","Age","Gender","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
+rownames(modd) <- rownames(mod) <- var1 <- names(dat)
+rdata1 <- dat.22
+j=0
+for(i in var1){
+  j=j+1
+  #MODEL 1 - adjusting for baseline
+  moddat <- na.omit(dat.rep[,c(paste(i,"y",sep="."),paste(i,"x",sep="."),cov)])
+  g <- glm(moddat[,paste(i,"y",sep=".")]~.,data=moddat[,-1]) #fit model remove NAs
+  #ANOVA 1
+  a <-   anova(g,test="Chisq")
+  mod[j,] <- a$`Pr(>Chi)`[-1]
+  #MODEL 2 - differences
+  moddat <- data.frame(diff=dat.rep[,paste(i,"x",sep=".")]-dat.rep[,paste(i,"y",sep=".")],dat.rep[,cov])
+  moddat <- na.omit(moddat)
+  gd <- glm(diff~.,data=moddat) #fit model remove NAs
+  #ANOVA 2 
+  ad <-   anova(gd,test="Chisq")
+  modd[j,] <- c(1,ad$`Pr(>Chi)`[-1])
+  #TRANSFORM data for correlation analysis
+  #covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<alpha][-1]) #get significant covariates + casecontrol status
+  #rdata1[,j] <- rntransform(dat21[,i],data=dat21[,covt],family="gaussian") 
+}
+
+#Model 1 - adjusting for baseline
+mod3 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0)) 
+sign3 <- mutate(mod3,any.sign=rowSums(mod3[2:5])) %>% filter(any.sign>1) #get significant variables 
+sign3
+#Phyiscal activiry:
+pa <- mod[,7]
+p <- cbind(pa,p.adjust(pa,method="BH"),p.adjust(pa,method="bonferroni"))
+p[p[,1]<0.05,]
+nn <- rownames(p[p[,1]<0.05,])
+
+#Model 2 - Diff:
+mod3d <- data.frame(var=rownames(modd),ifelse(modd<=alpha,1,0)) 
+sign3d <- mutate(mod3d,any.sign=rowSums(mod3d[2:5])) %>% filter(any.sign>1) #get significant variables 
+sign3d
+#Physical activity:
+pa <- modd[,7]
+pd <- cbind(pa,p.adjust(pa,method="BH"),p.adjust(pa,method="bonferroni"))
+pd[pd[,1]<0.05,]
+nnd <- rownames(pd[pd[,1]<0.05,])
+
+write.xlsx(rbind(p[p[,1]<0.05,],pd[pd[,1]<0.05,]), file ="hej.xlsx",sheetName = "TestSheet", row.names = T)
+
+#dat.rep$phys.x <- as.factor(dat.rep$phys.x)
+#MODEL 1 - plot "significant" variables 7*7
+gdata <- dat.rep[,c("phys.x",paste(nn,"y",sep="."))]
+gdata2 <- melt(gdata,id="phys.x")
+ggplot(gdata2,aes(y=value,x=phys.x,fill=phys.x))+
+  geom_boxplot(outlier.shape=NA) + #avoid plotting outliers twice
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.3)+
+  facet_wrap(~variable,scales="free")+theme_bw()
+
+#MODEL 2 - plot "significant" variables 
+gdata <- data.frame(phys.x=dat.rep[,c("phys.x")],(dat.rep[,paste(nnd,"x",sep=".")]-dat.rep[,paste(nnd,"y",sep=".")]))
+gdata2 <- melt(gdata,id="phys.x")
+ggplot(gdata2,aes(y=value,x=phys.x,fill=phys.x))+
+  geom_boxplot(outlier.shape=NA) + #avoid plotting outliers twice
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.3)+
+  facet_wrap(~variable,scales="free")+theme_bw()
 
 
 
 ```
 
+ 
+ Linear mixed models: (TEST)
+```{r,echo=F}
+
+
+lme1 <- lmer(CEACAM5 ~ pa_index + (1|provnr) , dat.lme)
+tidy(lme1)
+(s <- summary(lme1))
+#Test
+fm1 <-lmer(CEACAM5 ~  (1 | provnr), dat.lme)
+fm2 <- lmer(CEACAM5 ~ pa_index + (1 | provnr), dat.lme)
+# also works with lme objects
+anova(fm1, fm2) 
+```
 
 
 Prov 1: (zntransform on model before does not change sign covariates)
@@ -422,8 +541,16 @@ Prov 1: (zntransform on model before does not change sign covariates)
 alpha <- 0.05/182 
 
 #data
-dat21 <- filter(dat1,provnr==1)
-dat21$pa_index <- as.factor(dat21$pa_index)
+dat21 <- filter(dat2,provnr==1)
+#PA
+#dat21["phys"] <- dat21$pa_index
+#dat21$phys <- as.factor(dat21$phys)
+#levels(dat21$phys) <- c(1,1,2,2) #Slå ihop grupper G6
+#G6
+dat21["phys"] <- dat21$g6
+#dat21$phys <- as.factor(dat21$phys)
+#levels(dat21$phys) <- c(1,2,3,4,4) #Slå ihop grupper G6
+
 dat <- dplyr::select(dat21,one_of(var))
 
 #variables with many NAs
@@ -431,13 +558,13 @@ na <- apply(dat,2,function(x) sum(is.na(x))/length(x))
 plot(na)
 manyna <- names(na[na>=0.5])
 #remove them: no ones to remove
-dat <- dplyr::select(dat,-one_of(manyna))
+#dat <- dplyr::select(dat,-one_of(manyna))
 #calculate models with foor loop
 
-cov <- c("casecontrol","age","gender","langd","vikt","pa_index","skol","stg","blods0","blods2","midbp","smoke","snus","med") #what variables to include?
-mod <- matrix(nrow=ncol(dat),ncol=length(cov))
-colnames(mod) <- c("Case","Age","Gender","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
-rownames(mod) <- var1 <- names(dat)
+cov <- c("casecontrol","age","gender","langd","vikt","phys","skol","stg","blods0","blods2","midbp","smoke","snus","med") #what variables to include?
+mod1 <- matrix(nrow=ncol(dat),ncol=length(cov))
+colnames(mod1) <- c("Case","Age","Gender","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
+rownames(mod1) <- var1 <- names(dat)
 rdata1 <- dat
 j=0
 for(i in var1){
@@ -447,17 +574,45 @@ for(i in var1){
   g <- glm(moddat[,i]~.,data=moddat[,-1]) #fit model remove NAs
   #ANOVA
   a <-   anova(g,test="Chisq")
-  mod[j,] <- a$`Pr(>Chi)`[-1]
+  mod1[j,] <- a$`Pr(>Chi)`[-1]
   #TRANSFORM data for correlation analysis
   covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<alpha][-1]) #get significant covariates + casecontrol status
-  rdata1[,j] <- rntransform(dat21[,i],data=dat21[,covt],family="gaussian") 
+  #rdata1[,j] <- rntransform(dat21[,i],data=dat21[,covt],family="gaussian") 
 }
 
-mod1 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0)) 
-sign1 <- mutate(mod1,any.sign=rowSums(mod1[2:5])) %>% filter(any.sign>0) #get significant variables 
+mod11 <- data.frame(var=rownames(mod1),ifelse(mod1<=alpha,1,0)) 
+sign1 <- mutate(mod11,any.sign=rowSums(mod11[2:5])) %>% filter(any.sign>0) #get significant variables 
 sign1
 
+#Physical activity:
+pa <- mod1[,6]
+bh <- cbind(pa,p.adjust(pa,method="BH"),p.adjust(pa,method="bonferroni"))
+bh[bh[,1]<0.05,]
+nn <- rownames(bh[bh[,2]<0.05,])
 #ggplot(dat21,aes(y=CEACAM5,x=pa_index,fill=pa_index))+geom_boxplot()
+
+
+#plot "significant" variables
+gdata <- dat21[,c("phys",nn)]
+gdata$phys <- as.factor(gdata$phys)
+gdata2 <- melt(gdata,id="phys")
+ggplot(gdata2,aes(y=value,x=phys,fill=phys))+
+  geom_boxplot(outlier.shape=NA) + #avoid plotting outliers twice
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.3)+
+  facet_wrap(~variable,scales="free")+theme_bw()
+
+#plot "significant" variables
+gdata <- dat2[,c("provnr","pa_index",nn)]
+gdata$provnr <- as.factor(gdata$provnr)
+gdata$pa_index <- as.factor(gdata$pa_index)
+gdata2 <- melt(gdata,id=c("provnr","pa_index"))
+ggplot(gdata2,aes(y=value,x=pa_index,fill=provnr))+
+  geom_boxplot(outlier.shape=NA) + #avoid plotting outliers twice
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.3)+
+  facet_wrap(~variable,scales="free")+theme_bw()
+
+
+write.xlsx(bh[bh[,1]<0.05,], file ="hej proteins2.xlsx",sheetName = "TestSheet", row.names = T)
 
 ```
 
@@ -469,8 +624,12 @@ Prov 2:
 alpha <- 0.05/182 
 
 #data
-dat21 <- filter(dat1,provnr==2)
-dat21$pa_index <- as.factor(dat21$pa_index)
+dat21 <- filter(dat2,provnr==2)
+#dat21["phys"] <- dat21$pa_index
+dat21["phys"] <- dat21$g6
+#dat21$phys <- as.factor(dat21$phys)
+#levels(dat21$phys) <- c(1,2,3,4,4) #Slå ihop grupper G6
+
 dat <- dplyr::select(dat21,one_of(var))
 
 #variables with many NAs
@@ -478,82 +637,53 @@ na <- apply(dat,2,function(x) sum(is.na(x))/length(x))
 plot(na)
 manyna <- names(na[na>=0.5])
 #remove them: no ones to remove
-dat <- dplyr::select(dat,-one_of(manyna))
+#dat <- dplyr::select(dat,-one_of(manyna))
 #calculate models with foor loop
 
-cov <- c("casecontrol","age","gender","langd","vikt","pa_index","skol","stg","blods0","blods2","midbp","smoke","snus","med") #what variables to include?
-mod <- matrix(nrow=ncol(dat),ncol=length(cov))
-colnames(mod) <- c("Case","Age","Gender","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
-rownames(mod) <- var2 <- names(dat)
+cov <- c("casecontrol","age","gender","langd","vikt","phys","skol","stg","blods0","blods2","midbp","smoke","snus","med") #what variables to include?
+mod1 <- matrix(nrow=ncol(dat),ncol=length(cov))
+colnames(mod1) <- c("Case","Age","Gender","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
+rownames(mod1) <- var1 <- names(dat)
 rdata1 <- dat
 j=0
-for(i in var2){
+for(i in var1){
   j=j+1
   #MODE
   moddat <- na.omit(dat21[,c(i,cov)])
   g <- glm(moddat[,i]~.,data=moddat[,-1]) #fit model remove NAs
   #ANOVA
   a <-   anova(g,test="Chisq")
-  mod[j,] <- a$`Pr(>Chi)`[-1]
+  mod1[j,] <- a$`Pr(>Chi)`[-1]
   #TRANSFORM data for correlation analysis
   covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<alpha][-1]) #get significant covariates + casecontrol status
-  rdata1[,j] <- rntransform(dat21[,i],data=dat21[,covt],family="gaussian") 
+  #rdata1[,j] <- rntransform(dat21[,i],data=dat21[,covt],family="gaussian") 
 }
 
-mod2 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0)) 
-sign2 <- mutate(mod2,any.sign=rowSums(mod2[2:5])) %>% filter(any.sign>0) #get significant variables 
-sign2
+mod11 <- data.frame(var=rownames(mod1),ifelse(mod1<=alpha,1,0)) 
+sign1 <- mutate(mod11,any.sign=rowSums(mod11[2:5])) %>% filter(any.sign>0) #get significant variables 
+sign1
 
+#Physical activity:
+pa <- mod1[,6]
+bh <- cbind(pa,p.adjust(pa,method="BH"),p.adjust(pa,method="bonferroni"))
+bh[bh[,1]<0.05,]
+nn <- rownames(bh[bh[,2]<0.20,])
 #ggplot(dat21,aes(y=CEACAM5,x=pa_index,fill=pa_index))+geom_boxplot()
 
-```
 
+#plot "significant" variables
+gdata <- dat21[,c("phys",nn)]
+gdata2 <- melt(gdata,id="phys")
+ggplot(gdata2,aes(y=value,x=phys,fill=phys))+
+  geom_boxplot(outlier.shape=NA) + #avoid plotting outliers twice
+  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.3)+
+  facet_wrap(~variable,scales="free")+theme_bw()
 
-
-
-Ratio prov 1 och 2:
-
-
-```{r,echo=F}
-alpha <- 0.05/182
-
-dat <- select(dat1r,starts_with("1"))
-
-#variables with many NAs
-na <- apply(dat,2,function(x) sum(is.na(x))/length(x))
-plot(na)
-manyna <- names(na[na>=0.8])
-#remove them:
-dat <- select(dat,-one_of(manyna))
-
-#calculate models with foor loop
-var <- names(dat)
-cov <- c("casecontrol","gender","langd","vikt") #what variables to include?
-mod <- matrix(nrow=ncol(dat),ncol=length(cov))
-colnames(mod) <- c("Case","Gender","Length","Weight")
-rownames(mod) <- var
-rdata3 <- dat
-j=0
-for(i in var){
-  j=j+1
-  #MODEL
-  moddat <- na.omit(dat1r[,c(i,cov)])
-  g <- glm(moddat[,i]~.,data=moddat[,-1]) #fit model remove NAs
-  #ANOVA
-  a <-   anova(g,test="Chisq")
-  mod[j,] <- a$`Pr(>Chi)`[-1]
-  #TRANSFORM data for correlation analysis
-  covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<alpha][-1]) #get significant covariates + casecontrol status
-  rdata3[,j] <- rntransform(dat1r[,i],data=dat1r[,covt],family="gaussian") 
-}
-
-mod1 <- data.frame(var=rownames(mod),ifelse(mod<=alpha,1,0)) 
-sign3 <- mutate(mod1,any.sign=rowSums(mod1[2:5])) %>% filter(any.sign>0) #get significant variables 
-sign3
-
+write.xlsx(bh[bh[,1]<0.05,], file ="hej2.xlsx",sheetName = "TestSheet", row.names = T)
 
 
 ```
+
 
 
 
