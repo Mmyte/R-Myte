@@ -9,6 +9,8 @@ output: html_document
 ##Importera data
 ```{r,echo=FALSE,message=FALSE}
 
+setwd("~/Dropbox/Documents/JOBB ONKO/Sophia Early Detection")
+
 # Packages RUN -------------------------
 library(cluster)
 library(Hmisc)
@@ -29,7 +31,10 @@ library(tidyr)
 library(lme4)
 library(broom)
 library(forcats)
-#Functions
+library(circlize)
+library(RColorBrewer)
+
+# Functions ---------------------------
 source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
 source("~/Dropbox/Documents/JOBB ONKO/R/confadjust.R")
 source("~/Dropbox/Documents/JOBB ONKO/R/summ.R")
@@ -73,6 +78,14 @@ names(datx) <- gsub('-', '_', names(datx))
 names(datlod) <- gsub('-', '_', names(datlod))
 names(datx)[-1] <- substr(names(datx)[-1],5,nchar(names(datx)[-1]))
 names(datlod)[-1] <- substr(names(datlod)[-1],5,nchar(names(datlod)[-1]))
+# Remove double variables:
+dub <-  dplyr::select(dat1,contains("HGF"),contains("IL_6"),contains("SCF"),contains("TRAIL"),contains("TGF"),contains("VEGF")) %>% names()
+par(mfrow=c(2,2))
+plot(datx$TGFA,datx$TGF_alpha)
+plot(datx$HGF.y,datx$HGF.x)
+plot(datx$VEGF_A.y,datx$VEGF_A.x)
+datx <- dplyr::select(datx,-HGF.x,-TGFA,-VEGF_A.x)
+datlod <- dplyr::select(datlod,-HGF.x,-TGFA,-VEGF_A.x)
 
 # MISSING OLINK-data
 # percent missing in each variable, endast på datx, datlod har inga missing (ersatt med lowest detectable value)
@@ -155,6 +168,12 @@ dat2 <- unite(dat2,"person",caseset,casecontrol,remove=FALSE)
 # Borttagna flagged prover: (11 stycken + 1 som saknade phen data), stämmer överrens med OLINKs lista. 
 phen[!(phen$id %in% dat1$id),"pat_code"]
 
+# ANNAT -----------------------
+
+# Get Nature communications significant associations PEA vs Lifestyle
+natcom = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Dropbox/Documents/JOBB ONKO/Sophia Early Detection/VariablesNatCom.xlsx",
+                           sheet=1, 
+                           skipEmptyRows=FALSE)
 
 
 ```
@@ -368,6 +387,7 @@ legend("topright", legend = c("1", "2","3","4"),fill=c("dodgerblue2","dodgerblue
 # Data fix -----------------
 con <- filter(dat2,provnr==1)%>%
           dplyr::select(g6,one_of(var))
+
 con[,-1] <- scale(con[,-1])
 con <- na.omit(con)
 con$g6 <- as.factor(con$g6)
@@ -392,9 +412,6 @@ scatterplotMatrix(~PC1+PC2+PC3+PC4+PC5|prov, data=pca1,main="PCA",by.groups=F,sm
 Prov 1: (zntransform on model before does not change sign covariates)
 
 ```{r,echo=F}
-#alpha level bonferroni corrected
-alpha <- 0.05/182 
-
 # Data fix   ----------------- 
 dat21 <- filter(dat1,provnr==1)
 
@@ -422,12 +439,12 @@ dat <- dplyr::select(dat,-one_of(manyna))
 # Model fitting   ----------------- 
 
 # lifestyle variables:
-cov <- c("casecontrol","age","gender","langd","vikt","phys","skol","stg","blods0","blods2","midbp","smoke","snus","med") 
+cov <- c("casecontrol","age","gender","langd","vikt","bmi","phys","skol","stg","blods0","blods2","sbt","dbt","smoke","snus","med") 
 
 # Matrix to store estimate in:
 mod1 <- matrix(nrow=ncol(dat),ncol=length(cov))
 coef1 <- matrix(nrow=ncol(dat),ncol=1)
-colnames(mod1) <- c("Case","Age","Gender","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
+colnames(mod1) <- c("Case","Age","Sex","Length","Weight","BMI","Physical activity","Colesterol","Triglycerides","Glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
 rownames(mod1) <- rownames(coef1) <- var1 <- names(dat)
 rdata1 <- dat
 j=0
@@ -443,8 +460,8 @@ for(i in var1){
   a <-   anova(g,test="Chisq")
   mod1[j,] <- a$`Pr(>Chi)`[-1]
   #TRANSFORM data for correlation analysis
-  covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<alpha][-1]) #get significant covariates + casecontrol status
-  #rdata1[,j] <- rntransform(dat21[,i],data=dat21[,covt],family="gaussian") 
+  covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<0.05][-1]) #get significant covariates + casecontrol status
+  rdata1[,j] <- rntransform(dat21[,i],data=dat21[,covt],family="gaussian") 
 }
 
 #Estimates:
@@ -462,7 +479,7 @@ nn <- rownames(bh[bh[,3]<0.05,])
 
 
 # Export estimates to excel
-write.xlsx(bh[bh[,2]<0.05,], file ="hej proteins2.xlsx",sheetName = "TestSheet", row.names = T)
+#write.xlsx(bh[bh[,2]<0.05,], file ="hej proteins2.xlsx",sheetName = "TestSheet", row.names = T)
 
 # PLOTTING   ----------------- 
 # plot "significant" variables
@@ -470,8 +487,8 @@ gdata <- dat21[,c("phys",nn)]
 gdata$phys <- as.factor(gdata$phys)
 gdata2 <- melt(gdata,id="phys")
 ggplot(gdata2,aes(y=value,x=phys,fill=phys))+
-  geom_boxplot(outlier.shape=NA) + #avoid plotting outliers twice
-  geom_jitter(position=position_jitter(width=.35, height=0),size=0.5,alpha=0.3)+
+  geom_boxplot(outlier.shape=NA,alpha=0.3) + #avoid plotting outliers twice
+  geom_jitter(aes(color=phys),position=position_jitter(width=.35, height=0),size=0.5)+
   facet_wrap(~variable,scales="free")+theme_bw()
 
 # Scatter plot with reg line
@@ -540,8 +557,6 @@ pairs(gdata, diag.panel = panel.hist, upper.panel = panel.smooth,lower.panel = p
 Prov 2:
 
 ```{r,echo=F}
-#alpha level bonferroni corrected
-alpha <- 0.05/182 
 
 # Data fix   ----------------- 
 dat21 <- filter(dat1,provnr==2)
@@ -570,12 +585,12 @@ dat <- dplyr::select(dat,-one_of(manyna))
 # Model fitting   ----------------- 
 
 # lifestyle variables:
-cov <- c("casecontrol","age","gender","langd","vikt","phys","skol","stg","blods0","blods2","midbp","smoke","snus","med") 
+cov <- c("casecontrol","age","gender","langd","vikt","bmi","phys","skol","stg","blods0","blods2","sbt","dbt","smoke","snus","med") 
 
 # Matrix to store estimate in:
 mod1 <- matrix(nrow=ncol(dat),ncol=length(cov))
 coef1 <- matrix(nrow=ncol(dat),ncol=1)
-colnames(mod1) <- c("Case","Age","Gender","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
+colnames(mod1) <- c("Case","Age","Sex","Length","Weight","BMI","Physical activity","Colesterol","Triglycerides","Glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
 rownames(mod1) <- rownames(coef1) <- var1 <- names(dat)
 rdata1 <- dat
 j=0
@@ -591,15 +606,15 @@ for(i in var1){
   a <-   anova(g,test="Chisq")
   mod1[j,] <- a$`Pr(>Chi)`[-1]
   #TRANSFORM data for correlation analysis
-  covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<alpha][-1]) #get significant covariates + casecontrol status
+  covt <- c(i,"casecontrol",row.names(a)[a$`Pr(>Chi)`<0.05][-1]) #get significant covariates + casecontrol status
   #rdata1[,j] <- rntransform(dat21[,i],data=dat21[,covt],family="gaussian") 
 }
 
 #Estimates:
 mod1.bh <- apply(mod1,2,p.adjust,method="BH")
 mod11 <- data.frame(var=rownames(mod1.bh),ifelse(mod1.bh<=0.05,1,0)) 
-sign1 <- mutate(mod11,sum.sign=rowSums(mod11[-1])) %>% filter(sum.sign>0) #get significant variables 
-sign1
+sign2 <- mutate(mod11,sum.sign=rowSums(mod11[-1])) %>% filter(sum.sign>0) #get significant variables 
+sign2
 
 # Physical activity:
 pa <- mod1[,6]
@@ -649,7 +664,6 @@ Repeated measures analysis:
 ```{r,echo=F}
 
 # Data fix -----------------
-alpha <- 0.05/182 #Bonferroni level
 
 # Några saknar upprepade prover: Samma om man använder LOB eller NA data
 id2 <- names(table(dat1$person)[table(dat1$person)<2])
@@ -689,13 +703,13 @@ dat <- dplyr::select(dat.11,-one_of(unique(c(manyna1,manyna2))))
 # Model fitting  -----------------
 
 # Lifestyle variables:
-cov <- c("casecontrol","age","gender","langd","vikt","phys","skol","stg","blods0","blods2","midbp","smoke","snus","med") 
+cov <- c("casecontrol","age","gender","langd","vikt","bmi","phys","skol","stg","blods0","blods2","sbt","dbt","smoke","snus","med") 
 cov <- paste(cov,"x",sep=".")
 
 # Matrix to store estimate in:
 modd <- mod <- matrix(nrow=ncol(dat),ncol=length(cov)+1)
 coeff <- coefd <- matrix(nrow=ncol(dat),ncol=1)
-colnames(modd) <-colnames(mod) <- c("Baseline","Case","Age","Gender","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
+colnames(modd) <-colnames(mod) <- c("Case","Age","Sex","Length","Weight","BMI","Physical activity","Colesterol","Triglycerides","P-glucose","Glucose tolerance test","SBP","DBP","Smoking","Snus","Medications")
 rownames(modd) <- rownames(mod) <- var1 <- names(dat)
 rdata1 <- dat.22
 j=0
@@ -1037,27 +1051,20 @@ s <- step(models1$"101_IL-8",direction="backward",test="F")
 
 #Correlations between markers using adjusted and transformed data
 
+Prov 1
 ```{r,echo=F}
-#correlations prov 1
+# Correlations prov 1
 cor1 <- cor(rdata1,method="spearman",use="pairwise.complete.obs")
-#cor1[is.na(cor1)] <- 0
 
-#correlations prov 2
-corre2 <- filter(dat1,provnr==2)%>%
-          select(starts_with("1"))
-dim(corre2)
-cor2 <- cor(corre2,method="spearman",use="pairwise.complete.obs")
-#cor2[is.na(cor2)] <- 0
+#Data fix --------------------
+cor11 <- melt(cor1);nrow(cor11)
+cor11 <- cor11[cor11[,1]!=cor11[,2],];nrow(cor11)
+cor11[,3] <- cor11[,3]^2
+cor11[,4] <- ifelse(cor11[,3]>=0.5,1,0) 
+cor11 <- cor11[!duplicated(cor11[,3]),]
 
-#Correlations ratios:
-corre3 <- select(dat1r,starts_with("1"))
-dim(corre3)
-cor3 <- cor(corre3,method="spearman",use="pairwise.complete.obs")
-#cor3[is.na(cor3)] <- 0
-
-
-#Heatmap 2 : 8*10 inches works good
-heat <- t(as.matrix(corre))
+# Heatmap 2 : 8*10 inches works good
+heat <- t(as.matrix(cor1))
 dist.pear <- function(x) as.dist(1-cor(t(x),method="spearman",use="pairwise.complete.obs"))
 myclust <- function(x) hclust(x, method="average")
 #heatmap.2(heat,col=bluered, trace="none", distfun=dist.pear, hclustfun=hclust.ave)
@@ -1068,6 +1075,110 @@ heatmap.2(heat,dendrogram = "row",
           col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
 
 ```
+
+Circos correlations:
+```{r,echo=F}
+#Data fix --------------------
+cor22 <- cor11[cor11[,4]==1,]
+
+# Circos plot  --------------------
+chordDiagram(cor22[,1:3]) 
+circos.clear() #Resets graphical parameters
+
+```
+
+Circos lifestyle Prov 1
+
+```{r,echo=F}
+par(mar=c(5.1,4.1,4.1,2.1))
+
+#Data fix --------------------
+lf1 <- dplyr::select(sign1,-Case,-sum.sign) %>% melt(id="var")
+lf1 <- lf1[lf1$value>0,]
+head(lf1);nrow(lf1)
+levels(lf1$var) <- gsub('_', '-', levels(lf1$var))
+
+# Circos plot  --------------------
+# Start degree so that lifestyle are at the right
+# gap degree to seperate lifestyle from proteins
+circos.par(start.degree=310,
+           gap.degree=c(rep(2, length(unique(lf1[[1]]))-1), 12, rep(2, length(unique(lf1[[2]]))-1), 12))
+
+# Set grid colors
+uniq <- union(lf1[[1]], lf1[[2]])
+col3 <- colorRampPalette(c("forestgreen","green","yellow", "red", "blue"))
+grid.col=col3(length(uniq))
+names(grid.col)=uniq
+
+# Plot
+chordDiagram(lf1, 
+             annotationTrack = c("grid"),
+             preAllocateTracks = list(track.height = 0.3),
+             grid.col = grid.col) 
+
+# Add labels that are horizontal: 
+circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) { 
+  xlim = get.cell.meta.data("xlim")
+  ylim = get.cell.meta.data("ylim")
+  sector.name = get.cell.meta.data("sector.index") 
+  circos.text(mean(xlim), ylim[1], sector.name, facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
+}, bg.border = NA) # here set bg.border to NA is important
+
+# Clear graphics
+circos.clear() 
+
+```
+
+
+
+Circos lifestyle Prov 2
+```{r,echo=F}
+par(mar=c(5.1,4.1,4.1,2.1))
+
+#Data fix --------------------
+lf1 <- dplyr::select(sign2,-Case,-sum.sign) %>% melt(id="var")
+lf1 <- lf1[lf1$value>0,]
+head(lf1);nrow(lf1)
+levels(lf1$var) <- gsub('_', '-', levels(lf1$var))
+
+# Circos plot  --------------------
+# Start degree so that lifestyle are at the right
+# gap degree to seperate lifestyle from proteins
+circos.par(start.degree=310,
+           gap.degree=c(rep(2, length(unique(lf1[[1]]))-1), 12, rep(2, length(unique(lf1[[2]]))-1), 12))
+
+# Set grid colors
+uniq <- union(lf1[[1]], lf1[[2]])
+col3 <- colorRampPalette(c("forestgreen","green","yellow", "red", "blue"))
+grid.col=col3(length(uniq))
+names(grid.col)=uniq
+
+# Plot
+chordDiagram(lf1, 
+             annotationTrack = c("grid"),
+             preAllocateTracks = list(track.height = 0.3),
+             grid.col = grid.col) 
+
+# Add labels that are horizontal: 
+circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) { 
+  xlim = get.cell.meta.data("xlim")
+  ylim = get.cell.meta.data("ylim")
+  sector.name = get.cell.meta.data("sector.index") 
+  circos.text(mean(xlim), ylim[1], sector.name, facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
+}, bg.border = NA) # here set bg.border to NA is important
+
+# Clear graphics
+circos.clear() 
+
+```
+
+
+
+
+
+
+
+
 
 
 
