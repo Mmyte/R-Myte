@@ -1,0 +1,166 @@
+---
+title: "EnergyMetabolism1"
+author: "Robin Myte"
+date: "26 september 2016"
+output: html_document
+---
+
+```{r,echo=F}
+
+setwd("/Users/Myte/Dropbox/Documents/JOBB ONKO/Energy-metabolism/results")
+
+# Packages RUN -------------------------
+library(cluster)
+library(Hmisc)
+library(FactoMineR)
+library(mgcv)
+library(car)
+library(boot)
+library(gdata)
+library(gplots)
+library(xlsx)
+library(reshape)
+library(gdata)                
+library(ggExtra)
+library(dplyr)
+library(tidyr)
+library(lme4)
+library(broom)
+library(forcats)
+library(circlize)
+library(RColorBrewer)
+
+# Functions ---------------------------
+source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
+source("~/Dropbox/Documents/JOBB ONKO/R/confadjust.R")
+source("~/Dropbox/Documents/JOBB ONKO/R/summ.R")
+source('~/Dropbox/Documents/JOBB ONKO/R/table_myte.R')
+
+# Import data ------------------------- 
+# NSHDS kohort data n = 225157, 125381 individer
+load("/Users/Myte/Documents/DATA-filer/EnergyMet kohort/crc_enkat.RData")
+inputcrc <- crc
+# kvalitetsregister-data
+kval = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/Kvalitetsreg_160921_leverans.xlsx",
+                           sheet=1, 
+                           skipEmptyRows=FALSE)
+# Create unique ID variable:
+inputcrc <- mutate(inputcrc,id=1:nrow(inputcrc))
+
+# EXKLUSIONS  -------------------------
+# Remove faulty data according to EBF rules:
+inputcrc[is.na(inputcrc$langd)==F & (inputcrc$langd<130 | inputcrc$langd>210),"langd"]
+inputcrc[is.na(inputcrc$vikt)==F & (inputcrc$vikt<35),"vikt"]
+inputcrc[is.na(inputcrc$bmi)==F & (inputcrc$bmi<15 | inputcrc$bmi>70),"bmi"]
+inputcrc[is.na(inputcrc$midja)==F & (inputcrc$midja<60),"midja"]
+
+# Removed observations: n = 267, 258 unika individer tas bort
+remove <- filter(inputcrc, langd<130 | langd>210 | vikt<35 | bmi<15 | bmi>70 | midja<60 | skol<0.5 | skol>15 | 
+                      skol_mo<0.5 | skol_mo>15 |  hdl<0.15 | hdl>7 | stg<0.15 | stg>20 | stg_mo<0.15 | stg_mo>20 |
+                      blods0<1 | blods0>25 | blods2<1 | blods2>35 | sbt<20 | sbt>300 | btsyst<20 | btsyst>300 | 
+                      dbt<20 | dbt>250 | btdiast<20 | btdiast>250)
+# 224890 obs, 125291 individer
+crc <- filter(inputcrc,!(id %in% remove$id))
+
+# NYA VARIABLER -------------------------
+crc["fall"] <- ifelse(crc$crc==1,1,0)
+crc$gender <- as.factor(crc$gender)
+
+# Date and time variables
+
+
+# BMI
+crc["bmi3"] <- cut(crc$bmi,breaks=c(0,20,25,30,70),right=T,labels=c(1,2,3,4))
+crc$bmi3 <- fct_relevel(crc$bmi3,"2")
+
+# MetS variables
+# Create combined variables for cohorts:
+crc["skolt"] <- ifelse(crc$delproj=="MO",crc$skol_mo,crc$skol)
+crc["stgt"] <- ifelse(crc$delproj=="MO",crc$stg_mo,crc$stg)
+crc["sbtt"] <- ifelse(crc$delproj=="MO",crc$btsyst,crc$sbt)
+crc["dbtt"] <- ifelse(crc$delproj=="MO",crc$btdiast,crc$dbt)
+# mid blood pressure
+crc["midbp"] <- (crc$sbtt+crc$dbtt)/2
+
+# Z-transformed variables per gender and sample
+crc<- transform(crc, 
+          bmiz=ave(bmi, gender, delproj, measurement, FUN=scale),
+          stgz=ave(log(stg), gender, delproj, measurement, FUN=scale),
+          midbpz=ave(midbp, gender, delproj,measurement, FUN=scale),
+          blods0z=ave(log(blods0), gender, delproj,  measurement, FUN=scale),
+          skolz=ave(skol, gender, delproj, measurement, FUN=scale))
+crc["metsz"] <- crc$bmiz + crc$stgz + crc$midbpz + crc$blods0z + crc$skolz
+# Cut-off MetS
+crc["bmi2"] <- ifelse(crc$bmi>=30,1,0)
+crc["stg2"] <- ifelse(crc$stgt>=1.7,1,0)
+crc[is.na(crc$med_C5a),"med_C5a"] <- 0
+crc["ht2"] <- ifelse(crc$sbtt>=130|crc$dbtt>=85|crc$med_C5a==1,1,0)
+crc["htm"] <- crc$med_C5a
+crc["gluc2"] <- ifelse(crc$blods0>=5.6,1,0)
+crc["mets"] <- crc$stg2 + crc$ht2 + crc$gluc2
+crc["mets2"] <- as.factor(ifelse((crc$bmi>=25)&(crc$mets>1),1,0))
+
+# Smoking 
+crc["smoke"] <- as.factor(crc$sm_status)
+levels(crc$smoke) <- c(1,2,0,1,2)
+crc$smoke<- fct_relevel(crc$smoke,"0")
+
+# Snus
+crc["snus"] <- as.factor(crc$sn_status)
+levels(crc$snus) <- c(1,2,0)
+crc$snus<- fct_relevel(crc$snus,"0")
+
+# Medicin variable, tar du NÅGON medicin
+crc["med"] <- dplyr:select(crc,med_C5a:med_C5e) %>% rowSums(na.rm=T) 
+crc$med <- as.factor(ifelse(crc$med>0,1,ifelse(crc$med==0&crc$med_C5f==1,0,9999)))
+
+# Physical activity
+crc$pa_index <- as.factor(crc$pa_index)
+levels(crc$pa_index) <- c(1,2,3,4,9999,9999,9999)
+#crc[which(is.na(crc$pa_index)==T),"pa_index"] <- 1
+
+
+# Final remove all uncessesary variables:
+crc <- dplyr::select(crc,-contains("med_"),-smartmed,-andra_mediciner,-sm_status,-sn_status)
+summary(crc)
+
+
+
+# MISSING VIP:
+# percent missing in each obs
+na.row <- apply(crc,1,function(x) round(sum(is.na(x))/length(x),2))
+boxplot(na.row) #En individ har missing på 60€ av variablerna, (har bara kön och ålder)
+na.row[na.row>0.5]
+crc[names(na.row[na.row>0.5]),] 
+
+#Select and filter crc data
+crc <- filter(crc,id!=crc[names(na.row[na.row>0.5]),"id"])
+
+
+
+
+# First measurement data: 
+crc1 <- filter(crc,measurement==1)
+
+```
+
+
+Histograms anthropometric variables:
+
+```{r,echo=F}
+
+# Men
+filter(crc,measurement==1,gender==1) %>% dplyr::select(fall,age,langd,vikt,bmi,midja,skol_mo,skol,hdl,ldl,stg_mo,stg,blods0,blods2,btsyst,btdiast) %>% mutate(hdl=log(hdl),stg_mo=log(stg_mo),stg=log(stg),blods0=log(blods0),blods2=log(blods2),btsyst=log(btsyst),btdiast=log(btdiast)) %>% melt(id=c("fall")) %>%
+  ggplot(aes(x=value, fill=as.factor(fall))) +
+  geom_density(alpha=.3)+
+  facet_wrap(~variable,scales="free") + theme_bw() 
+
+# Women
+filter(crc,measurement==1,gender==2) %>% dplyr::select(fall,age,langd,vikt,bmi,midja,skol_mo,skol,hdl,ldl,stg_mo,stg,blods0,blods2,btsyst,btdiast) %>% mutate(hdl=log(hdl),stg_mo=log(stg_mo),stg=log(stg),blods0=log(blods0),blods2=log(blods2),btsyst=log(btsyst),btdiast=log(btdiast)) %>% melt(id=c("fall")) %>%
+  ggplot(aes(x=value, fill=as.factor(fall))) +
+  geom_density(alpha=.3)+
+  facet_wrap(~variable,scales="free") + theme_bw() 
+
+```
+
+
