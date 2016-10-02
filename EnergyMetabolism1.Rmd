@@ -22,6 +22,7 @@ library(xlsx)
 library(reshape)
 library(gdata)                
 library(ggExtra)
+library(lubridate)
 library(dplyr)
 library(tidyr)
 library(lme4)
@@ -39,11 +40,18 @@ source('~/Dropbox/Documents/JOBB ONKO/R/table_myte.R')
 # Import data ------------------------- 
 # NSHDS kohort data n = 225157, 125381 individer
 load("/Users/Myte/Documents/DATA-filer/EnergyMet kohort/crc_enkat.RData")
-inputcrc <- crc
+options("openxlsx.dateFormat" = "yyyy-mm-dd")
+# Import excel (NOT RUN)
+#inputcrc <- openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/Crc_enkat_160922_leveransfil.xlsx",
+#                          sheet=1, 
+#                           skipEmptyRows=FALSE,
+#                           detectDates=T)
+
 # kvalitetsregister-data
 kval = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/Kvalitetsreg_160921_leverans.xlsx",
                            sheet=1, 
-                           skipEmptyRows=FALSE)
+                           skipEmptyRows=FALSE,
+                           detectDates=T)
 # Create unique ID variable:
 inputcrc <- mutate(inputcrc,id=1:nrow(inputcrc))
 
@@ -60,14 +68,44 @@ remove <- filter(inputcrc, langd<130 | langd>210 | vikt<35 | bmi<15 | bmi>70 | m
                       blods0<1 | blods0>25 | blods2<1 | blods2>35 | sbt<20 | sbt>300 | btsyst<20 | btsyst>300 | 
                       dbt<20 | dbt>250 | btdiast<20 | btdiast>250)
 # 224890 obs, 125291 individer
-crc <- filter(inputcrc,!(id %in% remove$id))
-
+# Ta bort MA: 
+# 183444 obs, 119622 individer
+crc <- filter(inputcrc,!(id %in% remove$id),delproj!="MA")
+ma <- filter(inputcrc,!(id %in% remove$id),delproj=="MA")
 # NYA VARIABLER -------------------------
 crc["fall"] <- ifelse(crc$crc==1,1,0)
 crc$gender <- as.factor(crc$gender)
 
 # Date and time variables
 
+# set month = 00 and day = 00 to 06 and 15 
+#test <- dplyr::select(crc,q_date,sample_date,dodsdat,DODAT,DIADAT,uppfdat)
+# Fix dodsdat
+crc$dodsdat <- as.character(crc$dodsdat)
+crc[is.na(crc$dodsdat)==F&substr(crc$dodsdat,5,6)=="00","dodsdat"] <- paste0(substr(crc[is.na(crc$dodsdat)==F&substr(crc$dodsdat,5,6)=="00","dodsdat"],1,4),"06",substr(crc[is.na(crc$dodsdat)==F&substr(crc$dodsdat,5,6)=="00","dodsdat"],7,8))
+# Set day = 00 to 15
+crc[is.na(crc$dodsdat)==F&substr(crc$dodsdat,7,8)=="00","dodsdat"] <- paste0(substr(crc[is.na(crc$dodsdat)==F&substr(crc$dodsdat,7,8)=="00","dodsdat"],1,6),"15")
+crc$dodsdat <- ymd(as.numeric(crc$dodsdat))
+#Fixa uppfdat
+crc$uppfdat <- as.character(crc$uppfdat)
+# Set Month = 00 to 06
+crc[is.na(crc$uppfdat)==F&substr(crc$uppfdat,5,6)=="00","uppfdat"] <- paste0(substr(crc[is.na(crc$uppfdat)==F&substr(crc$uppfdat,5,6)=="00","uppfdat"],1,4),"06",substr(crc[is.na(crc$uppfdat)==F&substr(crc$uppfdat,5,6)=="00","uppfdat"],7,8))            
+# Set day = 00 to 15
+crc[is.na(crc$uppfdat)==F&substr(crc$uppfdat,7,8)=="00","uppfdat"] <- paste0(substr(crc[is.na(crc$uppfdat)==F&substr(crc$uppfdat,7,8)=="00","uppfdat"],1,6),"15")
+crc$uppfdat <- ymd(as.numeric(crc$uppfdat))
+# Fix DIADAT
+crc$DIADAT <- ymd(crc$DIADAT)
+
+
+# Years and attained age
+crc["qyear"] <- as.numeric(substr(crc$q_date,1,4))
+crc["pyear"] <- as.numeric(substr(crc$sample_date,1,4))
+crc["time"] <- (crc$uppfdat-crc$q_date)/365.25
+crc["attage"] <- as.numeric(crc$age+crc$time)
+crc["diaage"] <- as.numeric(crc$age+(crc$DIADAT-crc$q_date)/365.25)
+
+#dplyr::select(crc,fall,age,q_date,DIADAT,crc,uppfdat,time,uppfage) %>% View()
+#filter(crc,is.na(uppfdat)==T) %>% dplyr::select(fall,age,q_date,DIADAT,crc,uppfdat,time,uppfage) %>% View()
 
 # BMI
 crc["bmi3"] <- cut(crc$bmi,breaks=c(0,20,25,30,70),right=T,labels=c(1,2,3,4))
@@ -124,6 +162,8 @@ levels(crc$pa_index) <- c(1,2,3,4,9999,9999,9999)
 crc <- dplyr::select(crc,-contains("med_"),-smartmed,-andra_mediciner,-sm_status,-sn_status)
 summary(crc)
 
+
+# CRC case verification 
 
 
 # MISSING VIP:
