@@ -5,11 +5,12 @@ date: "26 september 2016"
 output: html_document
 ---
 
-```{r,echo=F}
+#DATA IMPORT
+```{r import,echo=F}
 
 setwd("/Users/Myte/Dropbox/Documents/JOBB ONKO/Energy-metabolism/results")
 
-# Packages RUN -------------------------
+# Packages and functions -------------------------
 library(cluster)
 library(Hmisc)
 library(FactoMineR)
@@ -31,7 +32,6 @@ library(forcats)
 library(circlize)
 library(RColorBrewer)
 
-# Functions ---------------------------
 source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
 source("~/Dropbox/Documents/JOBB ONKO/R/confadjust.R")
 source("~/Dropbox/Documents/JOBB ONKO/R/summ.R")
@@ -46,7 +46,6 @@ options("openxlsx.dateFormat" = "yyyy-mm-dd")
 #                          sheet=1, 
 #                           skipEmptyRows=FALSE,
 #                           detectDates=T)
-
 # kvalitetsregister-data
 kval = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/Kvalitetsreg_160921_leverans.xlsx",
                            sheet=1, 
@@ -55,13 +54,13 @@ kval = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet 
 # Create unique ID variable:
 inputcrc <- mutate(inputcrc,id=1:nrow(inputcrc))
 
-# EXKLUSIONS  -------------------------
+# Exclusions  -------------------------
 # Remove faulty data according to EBF rules:
 inputcrc[is.na(inputcrc$langd)==F & (inputcrc$langd<130 | inputcrc$langd>210),"langd"]
 inputcrc[is.na(inputcrc$vikt)==F & (inputcrc$vikt<35),"vikt"]
 inputcrc[is.na(inputcrc$bmi)==F & (inputcrc$bmi<15 | inputcrc$bmi>70),"bmi"]
 inputcrc[is.na(inputcrc$midja)==F & (inputcrc$midja<60),"midja"]
-
+#
 # Removed observations: n = 267, 258 unika individer tas bort
 remove <- filter(inputcrc, langd<130 | langd>210 | vikt<35 | bmi<15 | bmi>70 | midja<60 | skol<0.5 | skol>15 | 
                       skol_mo<0.5 | skol_mo>15 |  hdl<0.15 | hdl>7 | stg<0.15 | stg>20 | stg_mo<0.15 | stg_mo>20 |
@@ -70,14 +69,16 @@ remove <- filter(inputcrc, langd<130 | langd>210 | vikt<35 | bmi<15 | bmi>70 | m
 # 224890 obs, 125291 individer
 # Ta bort MA: 
 # 183444 obs, 119622 individer
-crc <- filter(inputcrc,!(id %in% remove$id),delproj!="MA")
+#crc <- filter(inputcrc,!(id %in% remove$id),delproj!="MA")
+crc <- filter(inputcrc,!(id %in% remove$id))
 ma <- filter(inputcrc,!(id %in% remove$id),delproj=="MA")
-# NYA VARIABLER -------------------------
+
+# Datum och essential variables ----------------
 crc["fall"] <- ifelse(crc$crc==1,1,0)
 crc$gender <- as.factor(crc$gender)
 
 # Date and time variables
-
+#
 # set month = 00 and day = 00 to 06 and 15 
 #test <- dplyr::select(crc,q_date,sample_date,dodsdat,DODAT,DIADAT,uppfdat)
 # Fix dodsdat
@@ -95,18 +96,49 @@ crc[is.na(crc$uppfdat)==F&substr(crc$uppfdat,7,8)=="00","uppfdat"] <- paste0(sub
 crc$uppfdat <- ymd(as.numeric(crc$uppfdat))
 # Fix DIADAT
 crc$DIADAT <- ymd(crc$DIADAT)
-
-
+#
 # Years and attained age
 crc["qyear"] <- as.numeric(substr(crc$q_date,1,4))
 crc["pyear"] <- as.numeric(substr(crc$sample_date,1,4))
 crc["time"] <- (crc$uppfdat-crc$q_date)/365.25
 crc["attage"] <- as.numeric(crc$age+crc$time)
 crc["diaage"] <- as.numeric(crc$age+(crc$DIADAT-crc$q_date)/365.25)
-
+crc["agef"] <- ceiling(crc$age)
+#
 #dplyr::select(crc,fall,age,q_date,DIADAT,crc,uppfdat,time,uppfage) %>% View()
 #filter(crc,is.na(uppfdat)==T) %>% dplyr::select(fall,age,q_date,DIADAT,crc,uppfdat,time,uppfage) %>% View()
 
+
+# CRC case verification ----------------
+kval1 <-  kval %>% mutate_at(c(4:31,33,35:54,56:69,71:92,94:125,126:130,132:134,136:141),funs(as.numeric))
+summary(kval1)
+# lokal:
+table(kval1$A2_tumlok_Värde)
+table(kval1$A2_tumlage_Värde)
+kval1["lokal"] <- ifelse(kval1$A2_tumlok_Värde==1,kval1$A2_tumlage_Värde,10)
+kval1["lokal2"] <- cut(kval1$lokal,c(0,1,9,11),labels=c("appendix","colon","rectum"))
+# Diaage:
+summary(kval1$A0_alder)
+# Datum:
+# några med 00-00? Nope
+kval1[is.na(kval1$A1_Diagnosdatum)==F&substr(kval1$A1_Diagnosdatum,6,7)=="00","A1_Diagnosdatum"]
+kval1[is.na(kval1$A1_Diagnosdatum)==F&substr(kval1$A1_Diagnosdatum,9,10)=="00","A1_Diagnosdatum"]
+kval1["diadat.k"] <- ymd(kval1$A1_Diagnosdatum)
+kval1["dyear.k"] <- as.numeric(substr(kval1$"diadat.k",1,4))
+#
+# mer än en cancer? 1066 unika fall, 34 st har mer än 1 post
+id <- as.numeric(names(table(kval1$PERSNR)[table(kval1$PERSNR)>1]))
+filter(kval1,PERSNR %in% id) %>% View()
+filter(kval1,PERSNR %in% id) %>% dplyr::select(PERSNR) %>% table()
+
+length(unique(kval1$PERSNR))
+#
+# Vilka i NSHDS finns i kvalreg?
+crc["kvalreg"] <- ifelse(crc$fall==1&crc$crc_id %in% kval1$PERSNR,1,
+                         ifelse(crc$fall==1&!(crc$crc_id %in% kval1$PERSNR),2,0))
+table(crc$kvalreg)
+
+# Nya Variabler --------------
 # BMI
 crc["bmi3"] <- cut(crc$bmi,breaks=c(0,20,25,30,70),right=T,labels=c(1,2,3,4))
 crc$bmi3 <- fct_relevel(crc$bmi3,"2")
@@ -119,7 +151,7 @@ crc["sbtt"] <- ifelse(crc$delproj=="MO",crc$btsyst,crc$sbt)
 crc["dbtt"] <- ifelse(crc$delproj=="MO",crc$btdiast,crc$dbt)
 # mid blood pressure
 crc["midbp"] <- (crc$sbtt+crc$dbtt)/2
-
+#
 # Z-transformed variables per gender and sample
 crc<- transform(crc, 
           bmiz=ave(bmi, gender, delproj, measurement, FUN=scale),
@@ -128,45 +160,126 @@ crc<- transform(crc,
           blods0z=ave(log(blods0), gender, delproj,  measurement, FUN=scale),
           skolz=ave(skol, gender, delproj, measurement, FUN=scale))
 crc["metsz"] <- crc$bmiz + crc$stgz + crc$midbpz + crc$blods0z + crc$skolz
+#
 # Cut-off MetS
 crc["bmi2"] <- ifelse(crc$bmi>=30,1,0)
 crc["stg2"] <- ifelse(crc$stgt>=1.7,1,0)
-crc[is.na(crc$med_C5a),"med_C5a"] <- 0
 crc["ht2"] <- ifelse(crc$sbtt>=130|crc$dbtt>=85|crc$med_C5a==1,1,0)
-crc["htm"] <- crc$med_C5a
 crc["gluc2"] <- ifelse(crc$blods0>=5.6,1,0)
 crc["mets"] <- crc$stg2 + crc$ht2 + crc$gluc2
 crc["mets2"] <- as.factor(ifelse((crc$bmi>=25)&(crc$mets>1),1,0))
 
 # Smoking 
+table(crc$sm_status)
 crc["smoke"] <- as.factor(crc$sm_status)
-levels(crc$smoke) <- c(1,2,0,1,2)
+levels(crc$smoke) <- c(1,2,0,3,4,9999,9999)
 crc$smoke<- fct_relevel(crc$smoke,"0")
 
 # Snus
 crc["snus"] <- as.factor(crc$sn_status)
-levels(crc$snus) <- c(1,2,0)
+levels(crc$snus) <- c(1,2,0,9999,9999)
 crc$snus<- fct_relevel(crc$snus,"0")
 
-# Medicin variable, tar du NÅGON medicin
-crc["med"] <- dplyr:select(crc,med_C5a:med_C5e) %>% rowSums(na.rm=T) 
-crc$med <- as.factor(ifelse(crc$med>0,1,ifelse(crc$med==0&crc$med_C5f==1,0,9999)))
+# Mediciner variable
+dplyr::select(crc,med_C5a:med_C5e,med_C5f,smartmed,med_asahjar, med_asacvs) %>% apply(2,table)
+# blodtrycksmedecin
+crc[is.na(crc$med_C5a),"med_C5a"] <- 0
+crc["htmed"] <- as.factor(crc$med_C5a)
+levels(crc$htmed) <- c(0,1,0,0,9999,9999)
+# blodfettssänkande
+crc[is.na(crc$med_C5e),"med_C5e"] <- 0
+crc["bfmed"] <- as.factor(crc$med_C5e)
+levels(crc$bfmed) <- c(0,1,0,0,9999,9999)
+# Hjärt-kärlkramp 
+crc[is.na(crc$med_C5b),"med_C5b"] <- 0
+crc["hkmed"] <- as.factor(crc$med_C5b)
+levels(crc$hkmed) <- c(0,1,9999,9999)
+
+# Diabetes 
+table(crc$diabet)
+crc$diabet <- as.factor(crc$diabet)
+levels(crc$diabet) <- c(1,0,0,9999,9999,9999)
+crc$diabet<- fct_relevel(crc$diabet,"0")
+#
+# diabetes-behandling:
+dplyr::select(crc,diabetesbehandling_a:diabetesbehandling_d) %>% summary()
+dplyr::select(crc,diabetesbehandling_a:diabetesbehandling_d) %>% apply(2,table)
+# diet motion
+crc[is.na(crc$diabetesbehandling_a),"diabetesbehandling_a"] <- 0
+crc$diabetesbehandling_a <- as.factor(crc$diabetesbehandling_a)
+levels(crc$diabetesbehandling_a) <- c(0,1,9999,9999)
+# tabletter
+crc[is.na(crc$diabetesbehandling_b),"diabetesbehandling_b"] <- 0
+crc$diabetesbehandling_b <- as.factor(crc$diabetesbehandling_b)
+levels(crc$diabetesbehandling_b) <- c(0,1,9999,9999)
+# Insulin
+crc[is.na(crc$diabetesbehandling_c),"diabetesbehandling_c"] <- 0
+crc$diabetesbehandling_c <- as.factor(crc$diabetesbehandling_c)
+levels(crc$diabetesbehandling_c) <- c(0,1,9999,9999)
+# inget av ovanstående
+crc[is.na(crc$diabetesbehandling_d),"diabetesbehandling_d"] <- 0
+crc$diabetesbehandling_d <- as.factor(crc$diabetesbehandling_d)
+levels(crc$diabetesbehandling_d) <- c(0,1,9999,9999)
+dplyr::select(crc,diabetesbehandling_a:diabetesbehandling_d) %>% apply(2,table)
 
 # Physical activity
-crc$pa_index <- as.factor(crc$pa_index)
-levels(crc$pa_index) <- c(1,2,3,4,9999,9999,9999)
-#crc[which(is.na(crc$pa_index)==T),"pa_index"] <- 1
+#
+# Occupational VIP:
+dplyr::select(crc,g2_a:g2_e) %>% apply(2,table)
+crc <- mutate(crc,g2_a=na_if(g2_a,8888),g2_b=na_if(g2_b,8888),g2_c=na_if(g2_c,8888),g2_d=na_if(g2_d,8888),g2_e=na_if(g2_e,8888))
+crc <- mutate(crc,g2_a=na_if(g2_a,9999),g2_b=na_if(g2_b,9999),g2_c=na_if(g2_c,9999),g2_d=na_if(g2_d,9999),g2_e=na_if(g2_e,9999))
+#replace NAs with 0
+crc <- replace_na(crc,list(g2_a=0,g2_b=0,g2_c=0,g2_d=0,g2_e=0))
+# Slå ihop variabel
+crc["g2"] <- interaction(crc$g2_a,crc$g2_b,crc$g2_c,crc$g2_d,crc$g2_e)
+crc$g2 <- drop.levels(crc$g2)
+table(crc$g2)
+# Lump levels and reorder
+levels(crc$g2) <- c(5,4,6666,3,6666,6666,6666,2,rep(6666,6),1,rep(6666,14),9999,9999)
+crc$g2 <- fct_relevel(crc$g2,c(1,2,3,4,5,6666,9999))
+# Occupational MONICA:
+crc$MONICA_motion_arbete <- as.factor(crc$MONICA_motion_arbete)
+table(crc$MONICA_motion_arbete)
+crc$MONICA_motion_arbete <- fct_collapse(crc$MONICA_motion_arbete,"9999"=c("8888","9999"))
+crc$MONICA_motion_arbete <- fct_expand(crc$MONICA_motion_arbete,"6666")
+crc$MONICA_motion_arbete <- fct_relevel(crc$MONICA_motion_arbete,c(1,2,3,4,5,6666,9999))
+# COMBINED variable VIP and MONICA:
+crc["phys.occ"] <- ifelse(crc$delproj=="MO"&crc$qyear!=2014,crc$MONICA_motion_arbete,crc$g2)
+crc$phys.occ <- as.factor(crc$phys.occ)
+levels(crc$phys.occ) <- c(1,2,3,4,5,6666,9999)
+#
+# Recreational VIP
+dplyr::select(crc,g6,motion:motion2,MONICA_motion_fritid_86_09) %>% apply(2,table)
+# Harmonize motion variables for different years:
+crc <- mutate(crc, g6 = as.factor(g6), motion = as.factor(motion), motion2 = as.factor(motion2), MONICA_motion_fritid_86_09 = as.factor(MONICA_motion_fritid_86_09))
+levels(crc$g6) <- c(1,2,3,4,5,9999,9999,9999)
+levels(crc$motion) <- c(1,2,3,4,5,9999,9999)
+levels(crc$motion2) <- c(1,2,3,4,5,9999,9999)
+crc <- mutate(crc, g6=na_if(g6,9999), motion=na_if(motion,9999), motion2=na_if(motion2,9999))
+# coeleqce into one variable with all motion in one: (Problem? Just use g6?)
+crc["phys.vip"] <- coalesce(crc$g6,crc$motion,crc$motion2)
+crc <- replace_na(crc,list(phys.vip=9999))
+table(crc$phys.vip)
+#
+table(crc$MONICA_motion_fritid_86_09)
+table(crc$MONICA_motion_fritid_86_09,crc$qyear)
+# Combined variable MONICA and VIP:
+crc["phys.rec"] <- ifelse(crc$delproj=="MO"&crc$qyear!=2014,crc$MONICA_motion_arbete,crc$g2)
+
 
 
 # Final remove all uncessesary variables:
 crc <- dplyr::select(crc,-contains("med_"),-smartmed,-andra_mediciner,-sm_status,-sn_status)
-summary(crc)
+summary(crc1)
 
-
-# CRC case verification 
 
 
 # MISSING VIP:
+# percent missing in each variable
+na.col <- apply(crc,2,function(x) round(sum(is.na(x))/length(x),2))
+plot(na.col) #En individ har missing på 60€ av variablerna, (har bara kön och ålder)
+na.col[na.col>0.5]
+
 # percent missing in each obs
 na.row <- apply(crc,1,function(x) round(sum(is.na(x))/length(x),2))
 boxplot(na.row) #En individ har missing på 60€ av variablerna, (har bara kön och ålder)
@@ -178,16 +291,15 @@ crc <- filter(crc,id!=crc[names(na.row[na.row>0.5]),"id"])
 
 
 
-
 # First measurement data: 
 crc1 <- filter(crc,measurement==1)
-
+ma1 <- filter(ma,measurement==1)
 ```
 
+# DESCRIPTIVES
+## Histograms anthropometric variables:
 
-Histograms anthropometric variables:
-
-```{r,echo=F}
+```{r historgrams,echo=F}
 
 # Men
 filter(crc,measurement==1,gender==1) %>% dplyr::select(fall,age,langd,vikt,bmi,midja,skol_mo,skol,hdl,ldl,stg_mo,stg,blods0,blods2,btsyst,btdiast) %>% mutate(hdl=log(hdl),stg_mo=log(stg_mo),stg=log(stg),blods0=log(blods0),blods2=log(blods2),btsyst=log(btsyst),btdiast=log(btdiast)) %>% melt(id=c("fall")) %>%
@@ -203,4 +315,52 @@ filter(crc,measurement==1,gender==2) %>% dplyr::select(fall,age,langd,vikt,bmi,m
 
 ```
 
+## Basic statistics NSHDS:
+
+```{r antal upprepade enkäter}
+#Antal prov per år och cohort
+ggplot(crc,aes(x=as.factor(qyear),fill=delproj)) + 
+  geom_bar() + 
+  theme(axis.text.x = element_text(angle = 55, hjust = 1)) + 
+  facet_wrap(~fall,scales="free") 
+
+# antal upprepade mätningar per cohort och fall-status
+ggplot(crc,aes(x=as.factor(measurement),fill=delproj)) + geom_bar() + facet_wrap(~fall,scales="free_y") + xlab("Measurement time")
+
+# Sample ålder
+ggplot(crc,aes(x=age,fill=delproj)) + geom_histogram() + facet_wrap(~delproj,scales="free_y") + xlab("Age at study entry")
+
+# Diagnos-ålder
+ggplot(crc,aes(x=diaage,fill=delproj)) + geom_histogram() + facet_wrap(~delproj,scales="free_y") + xlab("Age at CRC diagnosis")
+
+```
+
+
+Growth curves of BMI:
+
+Individual growth curves:
+```{r growth curves}
+# Sample some cases and non cases:
+set.seed(1234)
+idcases <- which(crc$fall==1)
+idcontrols <- which(crc$crc==5)
+id2 <- c(sample(idcases,10),sample(idcontrols,10))
+
+# Growth curves for first 50 individauls 
+filter(crc,crc_id %in% id2) %>% ggplot(aes(x=measurement, y=bmi,group=crc_id)) + 
+    geom_line(aes(colour=as.factor(fall))) +
+    theme_bw()
+
+#
+filter(crc,fall==1) %>% ggplot(aes(x=measurement, y=bmi,group=crc_id)) + 
+    geom_line(aes(colour=as.factor(gender)), alpha=0.7) +
+    #geom_smooth(aes(group=as.factor(crc), color=as.factor(crc)), method="auto") +
+    theme_bw()
+
+# FOr CRC case individuals
+filter(crc,fall==1) %>% ggplot(aes(x=measurement, y=bmi,group=crc_id)) + 
+    geom_line(aes(colour=as.factor(gender)), alpha=0.7) +
+    #geom_smooth(aes(group=as.factor(crc), color=as.factor(crc)), method="auto") +
+    theme_bw()
+```
 

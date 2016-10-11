@@ -85,8 +85,8 @@ plot(datx$HGF.y,datx$HGF.x)
 plot(datx$VEGF_A.y,datx$VEGF_A.x)
 #datx <- dplyr::select(datx,-HGF.x,-TGFA,-VEGF_A.x) %>% rename(HGF=HGF.y,VEGF_A=VEGF_A.y)
 #datlod <- dplyr::select(datlod,-HGF.x,-TGFA,-VEGF_A.x) %>% rename(HGF=HGF.y,VEGF_A=VEGF_A.y)
-datx <- dplyr::select(datx,-HGF.y,-TGF_alpha,-VEGF_A.y) %>% rename(HGF=HGF.x,VEGF_A=VEGF_A.x)
-datlod <- dplyr::select(datlod,-HGF.y,-TGF_alpha,-VEGF_A.y) %>% rename(HGF=HGF.x,VEGF_A=VEGF_A.x)
+datx <- dplyr::select(datx,-HGF.y,-TGF_alpha,-VEGF_A.y) %>% dplyr::rename(HGF=HGF.x,VEGF_A=VEGF_A.x)
+datlod <- dplyr::select(datlod,-HGF.y,-TGF_alpha,-VEGF_A.y) %>% dplyr::rename(HGF=HGF.x,VEGF_A=VEGF_A.x)
 par(mfrow=c(1,1))
 # MISSING OLINK-data
 # percent missing in each variable, endast på datx, datlod har inga missing (ersatt med lowest detectable value)
@@ -206,8 +206,8 @@ natcom = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Dropbox/Documents/JOBB ONKO/S
                            sheet=1, 
                            skipEmptyRows=FALSE)
 
-natcom <- dplyr::select(natcom,-Waist,-TLS) 
-natcom <- natcom[,c("var","Age","Sex","Length","Weight","BMI","SBP","DBP","Smoking","Snus")]
+natcom <- dplyr::select(natcom,-Waist,-TLS) %>% dplyr::rename(Heigth=Length) 
+natcom <- natcom[,c("var","Age","Sex","Height","Weight","BMI","SBP","DBP","Smoking","Snus")]
 # Only take proteins we have in our study:
 var.n <- as.factor(gsub('-', '_', natcom$var))
 levels(var.n)[levels(var.n)=="ErbB2"] <- "ERBB2"
@@ -536,7 +536,7 @@ cov <- c("casecontrol","age","gender","langd","vikt","bmi","phys","skol","stg","
 # Matrix to store estimate in:
 mod1 <- matrix(nrow=ncol(dat),ncol=length(cov))
 coef1 <- matrix(nrow=ncol(dat),ncol=1)
-colnames(mod1) <- c("Case","Age","Sex","Length","Weight","BMI","Physical activity","Colesterol","Triglycerides","Glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
+colnames(mod1) <- c("Case","Age","Sex","Height","Weight","BMI","Physical activity","Colesterol","Triglycerides","Glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
 rownames(mod1) <- rownames(coef1) <- var1 <- names(dat)
 rdata1 <- dat
 j=0
@@ -692,7 +692,7 @@ cov <- c("casecontrol","age","gender","langd","vikt","bmi","phys","skol","stg","
 # Matrix to store estimate in:
 mod1 <- matrix(nrow=ncol(dat),ncol=length(cov))
 coef1 <- matrix(nrow=ncol(dat),ncol=1)
-colnames(mod1) <- c("Case","Age","Sex","Length","Weight","BMI","Physical activity","Colesterol","Triglycerides","Glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
+colnames(mod1) <- c("Case","Age","Sex","Height","Weight","BMI","Physical activity","Colesterol","Triglycerides","Glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
 rownames(mod1) <- rownames(coef1) <- var1 <- names(dat)
 rdata1 <- dat
 j=0
@@ -812,7 +812,7 @@ cov <- paste(cov,"x",sep=".")
 # Matrix to store estimate in:
 modd <- mod <- matrix(nrow=ncol(dat),ncol=length(cov)+1)
 coeff <- coefd <- matrix(nrow=ncol(dat),ncol=1)
-colnames(modd) <-colnames(mod) <- c("Baseline","Case","Age","Sex","Length","Weight","BMI","Physical activity","Colesterol","Triglycerides","P-glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
+colnames(modd) <-colnames(mod) <- c("Baseline","Case","Age","Sex","Height","Weight","BMI","Physical activity","Colesterol","Triglycerides","P-glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
 rownames(modd) <- rownames(mod) <- var1 <- names(dat)
 rdata1 <- dat.22
 j=0
@@ -999,7 +999,7 @@ mod1 <- coef1 <- mod2 <- coef2 <- sd1 <- matrix(nrow=ncol(dat),ncol=length(cov))
 mod.mets1 <- mod.mets2 <- matrix(nrow=ncol(dat),ncol=6)
 coef.mets1 <- coef.mets2 <- sd.mets1 <- matrix(nrow=ncol(dat),ncol=8) 
 # colnames
-colnames(mod1) <- colnames(coef1) <- colnames(mod2) <- colnames(coef2) <- colnames(sd1) <- c("Age","Sex","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
+colnames(mod1) <- colnames(coef1) <- colnames(mod2) <- colnames(coef2) <- colnames(sd1) <- c("Age","Sex","Height","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
 colnames(mod.mets1) <- colnames(mod.mets2)  <-  c("BMIgroups","BMIcont","MetSgroups","MetScont","HT","HTmed")
 colnames(coef.mets1) <- colnames(coef.mets2) <- colnames(sd.mets1) <- c("BMI<20","BMI25-30","BMI>30","BMIcont","MetSgroups","MetScont","HT","HTmed")
 # rownames
@@ -1183,7 +1183,7 @@ Metabolomics method PLOTS:
 # PLOTTING  -----------------
 #Loop som plottar alla singificanta associationer:
 
-nam <- c("Age","Sex","Length","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Snus","Medications")
+nam <- c("Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Snus","Medications")
 str(dat.lme[,cov])
 k=0
 for(i in cov){
@@ -1409,11 +1409,9 @@ ggplot(dat.lme, aes(x=FR_gamma, fill=as.factor(casecontrol))) +
 ```
 
 Mets Matched line plot prov 1 och 2:
-```{r,echo=F}
+```{r match line plots,echo=F}
 x1 <- c("CCL4","FGF_21","FURIN","HGF","LYPD3","SCF","SEZ6L")
 x2 <- c("ERBB2","ESM_1","FGF_21","FGF_BP1","FURIN","HGF","IL_18R1","IL_7","IL_8","LYPD3","SCF","TNFSF14","VEGFR_2")
-
-fundiff <- function(x)
 
 #mets continous
 gdata <- dplyr::select(dat.lme,metsz,provnr,person,one_of(x2))
@@ -1524,7 +1522,6 @@ dplyr::select(dat.lme,provnr,one_of(var1[101:length(var1)])) %>% melt(id="provnr
 
 Differences explained by differneces analysis:
 
-
 ```{r,echo=F}
 
 # Data fix -----------------
@@ -1582,7 +1579,7 @@ cov <- paste(cov,"x",sep=".")
 # Matrix to store estimate in:
 modd <- mod <- matrix(nrow=ncol(dat),ncol=length(cov)+2)
 coeff <- coefd <- matrix(nrow=ncol(dat),ncol=2)
-colnames(modd) <-colnames(mod) <- c("Baseline","Physical activity","Case","Age","Gender","Length","Weight","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
+colnames(modd) <-colnames(mod) <- c("Baseline","Physical activity","Case","Age","Gender","Height","Weight","Colesterol","Triglycerides","P-glucose","2h Glucose test","mid BP","Smoking","Snus","Medications")
 rownames(modd) <- rownames(mod) <- var1 <- names(dat)
 rdata1 <- dat.22
 j=0
@@ -1662,8 +1659,6 @@ ggplot(gdata2,aes(y=value,x=phys.x,fill=phys.x))+
 
 ```
 
-
-
 The same using lapply
 
 ```{r,echo=F}
@@ -1700,32 +1695,72 @@ s <- step(models1$"101_IL-8",direction="backward",test="F")
 
 ```
 
-Mixed models:
+#Mixed models:
+Use Random intercepts models.
+For nlme, the column "Intercept" refers the measure of the variability for each random effect that you added to the model. "Residual" refers to the measure of the variability that is not due to differences between individuals. The ICC here is always non-negative, allowing it to be interpreted as the proportion of total variance that is "between groups." 
 
-```{r,echo=F}
+```{r}
 dat.lme <- dplyr::select(dat1,ESM_1,casecontrol,g6,person,provnr,age,gender,langd,vikt,skol,stg,blods0,blods2,sbt,dbt,smoke,snus,med) %>% na.omit()
 
-lme1 <- lmer(ESM_1 ~ casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med+(1|person) , dat.lme, REML=T)
+test <- lme(ESM_1 ~ 1, random=list(~1|person), dat.lme)
+summary(test)
+# "between person", variance:
+tapply(dat.lme$ESM_1,dat.lme$person,mean)
+sd(tapply(dat.lme$ESM_1,dat.lme$person,mean))/sqrt(2)
+# Residual "Within person", variance:
+tapply(dat.lme$ESM_1,dat.lme$person,sd)
+mean(tapply(dat.lme$ESM_1,dat.lme$person,sd),na.rm=T)
+
+#lme4
+lme1 <- lmer(ESM_1 ~ casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med+(1|person) , dat.lme, REML=F)
 (s <- summary(lme1))
-#Test
-lme2 <- lmer(ESM_1 ~ casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med+(1|person) , dat.lme, REML=F)
-# also works with lme objects
-anova(lme1, lme2)
+
+#nlme (blir samma)
+lme2 <- lme(ESM_1 ~ casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med, random=list(~1|person), dat.lme,method="ML")
+(s <- summary(lme2))
+anova(lme2)
+#variation in intercept between individuals: basically the same as in the model output, under random effects "Intercept"
+sd(lme2$coefficients$random$person)
+
+# Fixed plm doesnt work, duplicated obs
+fixed <- plm(ESM_1 ~ casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med, data=dat.lme, index=c("person"), model="within")
+summary(fixed)
+
+# Random plm
+random <- plm(ESM_1 ~ casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med, data=dat.lme, index=c("person"), model="random")
+summary(random)
 
 #With glm:
-glm1 <- glm(ESM_1~g6+provnr+casecontrol+age+gender+langd+vikt+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,dat.lme,family="gaussian")
+glm1 <- glm(ESM_1~casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,dat.lme,family="gaussian")
 summary(glm1)
 anova(glm1,test="Chisq")
 
-# Samma som med lmer (lme4)
-lme3 <- lme(WFDC2 ~ casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
-            random =list(~1|person, ~1|provnr),
-            na.action=na.omit,
-            data=dat.lme)
-summary(lme3)
-anova(lme3)
+```
 
-dplyr::select(dat.lme,WFDC2,person,provnr) %>% filter(person=="1_0"|person=="1_1") %>% head()
+##Mixed models loop:
+
+```{r mixed effects models,echo=F}
+
+# Data fix -----------------
+dat.lme <- dat1
+
+# Physical activity vairabel
+#dat.lme["phys"] <- dat.lme$pa_index
+dat.lme["phys"] <- dat.lme$g6
+dat.lme$bmi3 <- relevel(dat.lme$bmi3,ref="2") 
+
+dat.11 <- dplyr::select(dat.lme,one_of(var))
+
+# Variables with many missing: Remove with over 50% missing
+na1 <- apply(dat.11,2,function(x) sum(is.na(x))/length(x))
+plot(na1);abline(h=0.5)
+na1[na1>=0.5]
+manyna1 <- names(na1[na1>=0.5])
+# Remove them: (only important if dat1 is used)
+dat <- dplyr::select(dat.11,-one_of(c(manyna1)))
+var1 <- names(dat)
+alpha <- 0.05/length(var1)
+
 
 #Loop:
 library(nlme)
@@ -1749,13 +1784,15 @@ p <- length(cov)
 covm <- c("casecontrol","age","gender","g6","smoke","snus","med","bmi","bmi3","metsz","mets2","ht2","htm") 
 pm <- length(covm)
 # Matrix to store estimate in:
-mod1 <- coef1 <- mod2 <- coef2 <- sd1 <- matrix(nrow=ncol(dat),ncol=length(cov))
+mod1 <- mod2 <- matrix(nrow=ncol(dat),ncol=length(cov))
+coef1 <- sd1 <- matrix(nrow=ncol(dat),ncol=length(cov)+2)
 mod.mets1 <- mod.mets2 <- matrix(nrow=ncol(dat),ncol=6)
 coef.mets1 <- coef.mets2 <- sd.mets1 <- matrix(nrow=ncol(dat),ncol=8) 
 # colnames
-colnames(mod1) <- colnames(coef1) <- colnames(mod2) <- colnames(coef2) <- colnames(sd1) <- c("Case","Age","Sex","Length","Weight","Physical activity","Colesterol","Triglycerides","P-glucose","Glucose tolerance","SBP","DBP","Smoking","Snus","Medications")
-colnames(mod.mets1) <- colnames(mod.mets2)  <-  c("BMIgroups","BMIcont","MetSgroups","MetScont","HT","HTmed")
-colnames(coef.mets1) <- colnames(coef.mets2) <- colnames(sd.mets1) <- c("BMI<20","BMI25-30","BMI>30","BMIcont","MetSgroups","MetScont","HT","HTmed")
+colnames(mod1) <- colnames(mod2) <- c("Case","Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Snus","Medications")
+colnames(coef1) <-  colnames(sd1) <- c("Case","Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Ex.smoking","Snus","Ex.snus","Medications")
+colnames(mod.mets1) <-  c("BMIgroups","BMIcont","MetSgroups","MetScont","HT","HTmed")
+colnames(coef.mets1) <- colnames(sd.mets1) <- c("BMI<20","BMI25-30","BMI>30","BMIcont","MetSgroups","MetScont","HT","HTmed")
 # rownames
 rownames(mod1) <- rownames(coef1) <- rownames(mod2) <- rownames(coef2) <- rownames(mod.mets1) <- rownames(coef.mets1)  <- rownames(mod.mets2) <- rownames(coef.mets2) <- rownames(sd1) <- rownames(sd.mets1) <- var1 
 # intraclass correlations:
@@ -1766,32 +1803,64 @@ j=0
 for(i in var1){
   j=j+1
   cat(length(var1)-j," ")
-  # MODEL
+  # MODELs lifestyle
     moddat <- na.omit(data.frame(var=dat.lme[,i],dat.lme[,c("person","provnr",cov)]))
     g <- lme(var~casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
-            random =list(~1|person, ~1|provnr),
-            na.action=na.omit,
+            random =list(~1|person),
+            na.action=na.omit, method="ML",
             data=moddat)
+    # p-values
     a <-   anova(g)
     mod1[j,] <- a$`p-value`[-1]
-    varests <- as.numeric(VarCorr(g)[c(1,3)])
+    # Coefficients
+    coef1[j,] <- g$coefficients$fixed[-1]
+    # SD
+    sd1[j,] <- sqrt(diag(g$varFix))[-1]
+    # Intercept : between-subjects variace, residual: within subject variance
+    varests <- as.numeric(VarCorr(g)[c(1,2)]) 
     icc[j] <- varests[1]/sum(varests)
-  # MODEL BMI mets
+ # MODELs MetS
     moddat <- na.omit(data.frame(var=dat.lme[,i],dat.lme[,c("person","provnr",covm)]))
-    g <- lme(var~bmi3+casecontrol+age+gender+g6+smoke+snus+med,
-            random = ~provnr|person,
-            na.action=na.omit,
-            data=moddat)
-    a <-   anova(g)
-    mod.mets1[j,1] <- a$`p-value`[2]
-    moddat <- na.omit(data.frame(var=dat.lme[,i],dat.lme[,c("person","provnr",covm)]))
-    g <- lme(var~mets2+casecontrol+age+gender+g6+smoke+snus+med,
-            random =list(~1|person, ~1|provnr),
-            na.action=na.omit,
-            data=moddat)
-    a <-   anova(g)
-    mod.mets1[j,3] <- a$`p-value`[2]
+    g1 <- lme(var~bmi3+casecontrol+age+gender+g6+smoke+snus+med,
+              random = ~1|person, na.action=na.omit,method="ML",data=moddat)
+    g2 <- lme(var~bmi+casecontrol+age+gender+g6+smoke+snus+med,
+              random = ~1|person, na.action=na.omit,method="ML",data=moddat)
+    g3 <- lme(var~mets2+casecontrol+age+gender+g6+smoke+snus+med,
+              random = ~1|person, na.action=na.omit,method="ML",data=moddat)
+    g4 <- lme(var~metsz+casecontrol+age+gender+g6+smoke+snus+med,
+              random = ~1|person, na.action=na.omit,method="ML",data=moddat)
+    g5 <- lme(var~ht2+casecontrol+age+gender+g6+smoke+snus+med+bmi,
+              random = ~1|person, na.action=na.omit,method="ML",data=moddat)
+    g6 <- lme(var~htm+casecontrol+age+gender+g6+smoke+snus+med+bmi,
+              random = ~1|person, na.action=na.omit,method="ML",data=moddat)
+    # P-values
+    mod.mets1[j,1] <- anova(g1)$`p-value`[2]
+    mod.mets1[j,2] <- anova(g2)$`p-value`[2]
+    mod.mets1[j,3] <- anova(g3)$`p-value`[2]
+    mod.mets1[j,4] <- anova(g4)$`p-value`[2]
+    mod.mets1[j,5] <- anova(g5)$`p-value`[2]
+    mod.mets1[j,6] <- anova(g6)$`p-value`[2]
+    # Coefficients
+    coef.mets1[j,1:3] <- g1$coefficients$fixed[2:4]
+    coef.mets1[j,4] <- g2$coefficients$fixed[2]
+    coef.mets1[j,5] <- g3$coefficients$fixed[2]
+    coef.mets1[j,6] <- g4$coefficients$fixed[2]
+    coef.mets1[j,7] <- g5$coefficients$fixed[2]
+    coef.mets1[j,8] <- g6$coefficients$fixed[2]
+    # sd
+    sd.mets1[j,1:3] <- sqrt(diag(g1$varFix))[2:4]
+    sd.mets1[j,4] <- sqrt(diag(g2$varFix))[2]
+    sd.mets1[j,5] <- sqrt(diag(g3$varFix))[2]
+    sd.mets1[j,6] <- sqrt(diag(g4$varFix))[2]
+    sd.mets1[j,7] <- sqrt(diag(g5$varFix))[2]
+    sd.mets1[j,8] <- sqrt(diag(g6$varFix))[2]
+
 }
+
+```
+
+### Get significant varaibles:
+```{r get significants}
 
 # Significant lifestyle variables
 modf.bh0 <- apply(mod1,2,p.adjust,method="bonferroni")
@@ -1804,25 +1873,143 @@ signm
 # Significant BMI and Mets
 mets.bh1 <- apply(mod.mets1,2,p.adjust,method="bonferroni")
 mets.bh2 <- data.frame(var=rownames(mets.bh1),ifelse(mets.bh1<=0.05,1,0)) 
-mets.sign <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,-1])) %>% filter(sum.sign>0) #get significant variables 
+mets.sign <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,2:5])) %>% filter(sum.sign>0) 
 mets.sign <- mets.sign[order(mets.sign$var),]
 mets.coef <- data.frame(var=rownames(coef.mets1),coef.mets1)
 mets.sign 
 
-gdata <- data.frame(var1=var1,icc=icc)
-ggplot(gdata,aes(x=var1,y=icc)) +
-  geom_bar(stat="identity",width=.05)+
-  geom_point(size=2)+
-  coord_flip() + theme_bw()
+# Skapa Sophias excel-fil:
+# adj p
+mod.bh0 <- apply(mod1,2,p.adjust,method="bonferroni")
+mod.bh1 <- apply(mod.mets1,2,p.adjust,method="bonferroni")
+sop <- data.frame(padj=mod.bh0[,2],age=coef1[,2],agesd=sd1[,1],
+                  padj=mod.bh0[,3],sex=coef1[,3],sexsd=sd1[,2],
+                  padj=mod.bh0[,4],height=coef1[,4],heightsd=sd1[,3],
+                  padj=mod.bh0[,5],weight=coef1[,5],weightsd=sd1[,4],
+                  padj=mod.bh0[,7],chol=coef1[,7],cholsd=sd1[,6],
+                  padj=mod.bh0[,8],trig=coef1[,8],cholsd=sd1[,7],
+                  padj=mod.bh0[11],sbt=coef1[,11],sbtsd=sd1[,10],
+                  padj=mod.bh0[,12],dbt=coef1[,12],dbtsd=sd1[,11],
+                  padj=mod.bh1[,5],HT=coef.mets1[,7],HTsd=sd.mets1[,7],
+                  padj=mod.bh1[,6],HTmed=coef.mets1[,8],HTmedsd=sd.mets1[,8],
+                  padj=mod.bh1[,1],BMI20=coef.mets1[,1],BMI20sd=sd.mets1[,1],BMI2530=coef.mets1[,2],BMI2530sd=sd.mets1[,2],BMI30=coef.mets1[,3],BMI30sd=sd.mets1[,3],
+                  padj=mod.bh1[,2],BMIcont=coef.mets1[,4],BMIcontsd=sd.mets1[,4],
+                  padj=mod.bh1[,3],Mets=coef.mets1[,5],Metssd=sd.mets1[,5],
+                  padj=mod.bh1[,4],Metscont=coef.mets1[,6],Metscontsd=sd.mets1[,6])
+sop["var"] <- rownames(sop)
+sop <- sop[order(sop$var),]
+# Export estimates to excel
+#write.xlsx(rbind(p[p[,2]<0.05,],pd[pd[,2]<0.05,]), file ="hej.xlsx",sheetName = "TestSheet", row.names = T)
+#write.xlsx(cbind(p[nn,],pd[nn,]), file ="hej.xlsx",sheetName = "TestSheet", row.names = T)
+write.xlsx(sop, file ="sophia3.xlsx",sheetName = "TestSheet", row.names = T)
 
 ```
+
+
+## ICC
+```{r plot ICC}
+#Plot ICCs
+gdata <- data.frame(var1=var1,icc=icc)
+ggplot(gdata,aes(x=reorder(var1,icc),y=icc)) +
+  geom_bar(stat="identity",width=.15)+
+  geom_point(size=1)+
+  coord_flip() + 
+  theme_bw()
+```
+
+### Proteins with low and high icc?
+Proteins with low ICCs, "more black", that is higher variation within indiviuals between the two samples. 
+
+Proteins with high ICCs, "less black", more variation between individuals. Most individuals have little diff between two samples. 
+```{r plot variables with extreme ICC}
+# ICC under 0.1 - little of variation is between individuals (more within individuals)
+icclow <- names(icc[icc<0.05])
+dplyr::select(dat.lme,person,provnr,one_of(icclow)) %>% melt(id=c("person","provnr")) %>% 
+  ggplot(aes(y=value, x=as.factor(person),color=as.factor(provnr))) +
+  geom_point(size=0.5) + 
+  geom_line(aes(group=as.factor(person)),color="black") + 
+  facet_wrap(~variable,scales="free") + theme_bw() + theme(axis.text.x=element_blank(),axis.ticks.x=element_blank())
+
+# ICC over 0.8 - much of total variation is between indiviuals
+icclow <- names(icc[icc>0.9])
+dplyr::select(dat.lme,person,provnr,one_of(icclow)) %>% melt(id=c("person","provnr")) %>% 
+  ggplot(aes(y=value, x=as.factor(person),color=as.factor(provnr))) +
+  geom_point(size=0.5) + 
+  geom_line(aes(group=as.factor(person)),color="black") + 
+  facet_wrap(~variable,scales="free") + theme_bw() + theme(axis.text.x=element_blank(),axis.ticks.x=element_blank())
+    
+
+```
+
+### Plot significant variabls in mixed models:
+
+```{r univariate plots mixed models,echo=F}
+
+# PLOTTING  -----------------
+#Loop som plottar alla singificanta associationer:
+cov <- c("age","gender","langd","vikt","g6","skol","stg","blods0","blods2","sbt","dbt","smoke","snus","med") 
+nam <- c("Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Snus","Medications")
+coef1 <- as.data.frame(coef1)
+sd1 <- as.data.frame(sd1)
+str(dat.lme[,cov])
+k=0
+for(i in cov){
+  k=k+1
+  # Ta ut significants
+  s1 <- signm[,c("var",nam[k])]
+  s1 <- s1[s1[,2]>0,]
+  nn <- as.character(s1[,1])
+  coef <- dplyr::select(coef1,contains(nam[k]))
+  coef <- as.matrix(coef[nn,])
+  sd <- dplyr::select(sd1,contains(nam[k]))
+  sd <- as.matrix(sd[nn,])
+  s1 <- data.frame(s1,Coef=round(coef,4),SE=round(sd,4))
+  cat("\nSignificant associations: \n")
+  print(nam[k])
+  cat("No of proteins = ",dim(s1)[1],"\n")
+  print(s1)
+  #Samma som i Enroth?
+  if(nam[k] %in% names(natcom)){
+    nat1 <- natcom[natcom[,nam[k]]>0,]
+  cat("\nAlso significant in Enroth 2014 \n")
+  print(s1[s1[,1] %in% nat1[,1],])
+  }else cat("\nCovariate not included in Enroth 2014 \n")
+  # Plotta 
+  if(sum(signm[,nam[k]])==0){
+    cat("\nNo significant associations \n")
+    
+  }else if(is.factor(dat.lme[,i])==T){ 
+    gdata <- dat.lme[,c(i,"provnr",nn)]
+    gdata$provnr <- as.factor(gdata$provnr)
+    gdata2 <- melt(gdata,id=c(i,"provnr"))
+    # plot
+    print(ggplot(gdata2,aes(y=value,x=provnr,fill=gdata2[,i]))+
+    geom_boxplot(outlier.shape=NA,alpha=0.2) + #avoid plotting outliers twice
+    geom_point(aes(color=gdata2[,i]),position = position_jitterdodge(), size=0.5)+
+    facet_wrap(~variable,scales="free")+theme_bw()+xlab(nam[k])+ylab(""))
+    #,
+  }else{
+    gdata <- dat.lme[,c(i,"provnr",nn)]
+    gdata$provnr <- as.factor(gdata$provnr)
+    gdata2 <- melt(gdata,id=c(i,"provnr"))
+    # plot
+    print(ggplot(gdata2,aes(y=value,x=gdata2[,i],fill=provnr))+
+    geom_smooth(method="lm",color="black")+
+    geom_point(aes(color=provnr),position = position_jitterdodge(), size=0.5)+
+    facet_wrap(~variable,scales="free")+theme_bw()+xlab(nam[k])+ylab(""))
+  } 
+}
+
+
+
+```
+
 
 
 #Correlations between markers using adjusted and transformed data
 
 Heatmap old
 ```{r,echo=F}
-
 
 # Heatmap 2 : 8*10 inches works good
 heat <- t(as.matrix(cor1))
