@@ -31,47 +31,38 @@ library(broom)
 library(forcats)
 library(circlize)
 library(RColorBrewer)
+library(survival)
 
 source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
 source("~/Dropbox/Documents/JOBB ONKO/R/confadjust.R")
-source("~/Dropbox/Documents/JOBB ONKO/R/summ.R")
 source('~/Dropbox/Documents/JOBB ONKO/R/table_myte.R')
+# Table function, show NA
+tab <- function(x,y=1){
+  if(length(y)>1){table(x,y,useNA = "always")
+    } else{table(x,useNA = "always")} 
+} 
 
 # Import data ------------------------- 
 # NSHDS kohort data n = 225157, 125381 individer
 load("/Users/Myte/Documents/DATA-filer/EnergyMet kohort/crc_enkat.RData")
+load("/Users/Myte/Documents/DATA-filer/EnergyMet kohort/crc patcodes.RData")
 options("openxlsx.dateFormat" = "yyyy-mm-dd")
 # Import excel (NOT RUN)
 #inputcrc <- openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/Crc_enkat_160922_leveransfil.xlsx",
 #                          sheet=1, 
 #                           skipEmptyRows=FALSE,
 #                           detectDates=T)
+
 # kvalitetsregister-data
 kval = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/Kvalitetsreg_160921_leverans.xlsx",
                            sheet=1, 
                            skipEmptyRows=FALSE,
                            detectDates=T)
-# Create unique ID variable:
-inputcrc <- mutate(inputcrc,id=1:nrow(inputcrc))
-
-# Exclusions  -------------------------
-# Remove faulty data according to EBF rules:
-inputcrc[is.na(inputcrc$langd)==F & (inputcrc$langd<130 | inputcrc$langd>210),"langd"]
-inputcrc[is.na(inputcrc$vikt)==F & (inputcrc$vikt<35),"vikt"]
-inputcrc[is.na(inputcrc$bmi)==F & (inputcrc$bmi<15 | inputcrc$bmi>70),"bmi"]
-inputcrc[is.na(inputcrc$midja)==F & (inputcrc$midja<60),"midja"]
-#
-# Removed observations: n = 267, 258 unika individer tas bort
-remove <- filter(inputcrc, langd<130 | langd>210 | vikt<35 | bmi<15 | bmi>70 | midja<60 | skol<0.5 | skol>15 | 
-                      skol_mo<0.5 | skol_mo>15 |  hdl<0.15 | hdl>7 | stg<0.15 | stg>20 | stg_mo<0.15 | stg_mo>20 |
-                      blods0<1 | blods0>25 | blods2<1 | blods2>35 | sbt<20 | sbt>300 | btsyst<20 | btsyst>300 | 
-                      dbt<20 | dbt>250 | btdiast<20 | btdiast>250)
-# 224890 obs, 125291 individer
-# Ta bort MA: 
-# 183444 obs, 119622 individer
-#crc <- filter(inputcrc,!(id %in% remove$id),delproj!="MA")
-crc <- filter(inputcrc,!(id %in% remove$id))
-ma <- filter(inputcrc,!(id %in% remove$id),delproj=="MA")
+# Create unique ID variable and insert patcodes:
+sum(patcodes$crc_id==inputcrc$crc_id)
+inputcrc <- mutate(inputcrc,id=1:nrow(inputcrc),pat_code=patcodes$pat_code)
+rm(patcodes)
+crc <- inputcrc
 
 # Datum och essential variables ----------------
 crc["fall"] <- ifelse(crc$crc==1,1,0)
@@ -100,6 +91,7 @@ crc$DIADAT <- ymd(crc$DIADAT)
 # Years and attained age
 crc["qyear"] <- as.numeric(substr(crc$q_date,1,4))
 crc["pyear"] <- as.numeric(substr(crc$sample_date,1,4))
+crc["dyear"] <- as.numeric(substr(crc$DIADAT,1,4))
 crc["time"] <- (crc$uppfdat-crc$q_date)/365.25
 crc["attage"] <- as.numeric(crc$age+crc$time)
 crc["diaage"] <- as.numeric(crc$age+(crc$DIADAT-crc$q_date)/365.25)
@@ -108,35 +100,187 @@ crc["agef"] <- ceiling(crc$age)
 #dplyr::select(crc,fall,age,q_date,DIADAT,crc,uppfdat,time,uppfage) %>% View()
 #filter(crc,is.na(uppfdat)==T) %>% dplyr::select(fall,age,q_date,DIADAT,crc,uppfdat,time,uppfage) %>% View()
 
-
 # CRC case verification ----------------
+# Kvalitetsregistrert ----------------
 kval1 <-  kval %>% mutate_at(c(4:31,33,35:54,56:69,71:92,94:125,126:130,132:134,136:141),funs(as.numeric))
+kval1 <- dplyr::rename(kval1,crc_id=PERSNR, diaage.k=A0_alder, opererats=A2_oper_Värde, t=A3_t_Värde, n=A3_n_Värde, m=A3_m_Värde, diffgrad=A3_diffgrad_Värde, adenocarcinom=A3_adeno_Värde, dvikt=A2_vikt, dlangd=A2_langd, optyp1=A2_optyp1_Värde,optyp2=A2_optyp2_Värde) %>%
+          mutate(
+            diadat.k = ymd(A1_Diagnosdatum),
+            dyear.k = as.numeric(substr(diadat.k,1,4)),
+            opdat = ymd(A2_opdat),
+            lokal = ifelse(A2_tumlok_Värde==1,A2_tumlage_Värde,10), 
+            lokal2 = cut(lokal,c(0,1,9,11),labels=c("appendix","colon","rectum")))
 summary(kval1)
-# lokal:
-table(kval1$A2_tumlok_Värde)
-table(kval1$A2_tumlage_Värde)
-kval1["lokal"] <- ifelse(kval1$A2_tumlok_Värde==1,kval1$A2_tumlage_Värde,10)
-kval1["lokal2"] <- cut(kval1$lokal,c(0,1,9,11),labels=c("appendix","colon","rectum"))
-# Diaage:
-summary(kval1$A0_alder)
-# Datum:
-# några med 00-00? Nope
-kval1[is.na(kval1$A1_Diagnosdatum)==F&substr(kval1$A1_Diagnosdatum,6,7)=="00","A1_Diagnosdatum"]
-kval1[is.na(kval1$A1_Diagnosdatum)==F&substr(kval1$A1_Diagnosdatum,9,10)=="00","A1_Diagnosdatum"]
-kval1["diadat.k"] <- ymd(kval1$A1_Diagnosdatum)
-kval1["dyear.k"] <- as.numeric(substr(kval1$"diadat.k",1,4))
+(a <- apply(kval1,2,function(x) sum(is.na(x)==T)))
+a[a==0]
 #
+# Stadium
+# Opererats? 984 ja, 116 nej
+# ca 140 saknar TNM värden
+dplyr::select(kval1,lokal2,opererats,optyp2,A1_ct1,A1_mr1,t,n,m) %>% apply(2,table,useNA="always")
+# en del missing pga år, men även senare år
+tab(kval1$t, kval1$dyear.k)
+tab(kval1$n, kval1$dyear.k)
+tab(kval1$m, kval1$dyear.k)
+# I princip samma missing på alla:
+tab(kval1$t, kval1$n)
+tab(kval1$t, kval1$m)
+tab(kval1$n, kval1$m)
+# Skapa ny variabel:
+kval1["stage"] <- ifelse((kval1$t==1|rna$T==2)&rna$N==0&rna$M==0,1,
+                      ifelse((rna$T==3|rna$T==4|rna$T==5)&rna$N==0&rna$M==0,2,
+                      ifelse(rna$N!=0&rna$M==0,3,
+                      ifelse(rna$M!=0,4,9999))))
+# Grade: endast från 2013
+table(kval1$diffgrad, useNA="always")
 # mer än en cancer? 1066 unika fall, 34 st har mer än 1 post
-id <- as.numeric(names(table(kval1$PERSNR)[table(kval1$PERSNR)>1]))
-filter(kval1,PERSNR %in% id) %>% View()
-filter(kval1,PERSNR %in% id) %>% dplyr::select(PERSNR) %>% table()
-
-length(unique(kval1$PERSNR))
+id <- as.numeric(names(table(kval1$crc_id)[table(kval1$crc_id)>1]))
+filter(kval1,crc_id %in% id) %>% dplyr::select(crc_id, diadat.k, dyear.k, diaage.k, lokal, lokal2 ,opererats, opdat, t, n, m, diffgrad, dvikt, dlangd) %>%  View()
+filter(kval1,crc_id %in% id) %>% dplyr::select(crc_id) %>% table()
+length(unique(kval1$crc_id))
+# Remove less interesting variables from kval-reg data: 
+# "DISTINCT()"removes individauls with more than 1 cancers at same time, should be fixed
+kval2 <- dplyr::select(kval1, crc_id, diadat.k, dyear.k, diaage.k, lokal, lokal2 ,opererats, opdat, t, n, m, diffgrad, dvikt, dlangd) %>% 
+        distinct(crc_id, .keep_all=T)
+summary(kval2)
+sum(crc$crc_id %in% kval2$crc_id)
+sum(crc$fall==1&(crc$crc_id %in% kval2$crc_id))
+# Merge kval-reg variables to large crc file
+crc["kvalreg"] <- ifelse(crc$crc_id %in% kval2$crc_id,1,0)
+tab(crc$kvalreg,crc$measurement)
 #
-# Vilka i NSHDS finns i kvalreg?
-crc["kvalreg"] <- ifelse(crc$fall==1&crc$crc_id %in% kval1$PERSNR,1,
-                         ifelse(crc$fall==1&!(crc$crc_id %in% kval1$PERSNR),2,0))
-table(crc$kvalreg)
+# Folat: ------------
+# Björns MSI/BRAF fil - MONICA saknar diagnosdatum
+bg <- read.csv("~/Documents/DATA-filer/MSI BRAF.csv", sep=";", dec=",",na.strings=c(""," ","NA"))
+bg <- filter(bg,fall==1) %>% dplyr::select(idnr,pat_code,Filter_folate, pyear, Age, delproj_num, PAD, dia_age2, 
+                                           KRAS, BRAF, MSI, Cimp, diadat2, langd, vikt, Lokal_3:M_TNM, Stadium, 
+                                           T_TNM, N_TNM, M_TNM, dodsorsak, Dead, avlidendat, datdiff_km2,-DIADAT) %>% 
+                             dplyr::rename(pyear.bg=pyear, age.bg=Age, diadat.bg=diadat2, lokal.bg=Lokal, lokal3.bg=Lokal_3,
+                                           stage.bg=Stadium,langd.bg=langd, vikt.bg=vikt, diaage.bg=dia_age2,
+                                           t.bg=T_TNM, n.bg=N_TNM, m.bg=M_TNM,
+                                           kras.bg=KRAS, braf.bg=BRAF, msi.bg=MSI, cimp.bg=Cimp) 
+
+apply(bg,2,function(x) sum(is.na(x)==T))
+#
+#vilka crc-fall i bg finns i NSHDS-enkät? 636 stycken! 587 unika fall:
+sum(crc$fall==1&(crc$pat_code %in% bg$pat_code))
+crc["folatbg"] <- ifelse(crc$fall==1&(crc$pat_code %in% bg$pat_code),1,0)
+tab(crc$folatbg,crc$measurement)
+#
+# CRUMS -------------
+# med IDs
+# Saved file is Sophias new CRUMS file with attached crc_id from Veronica
+load("/Users/Myte/Documents/DATA-filer/EnergyMet kohort/crums161013.Rdata")
+# two ids which are in NSHDS have two entries in crums, look up in kvalreg and folate file
+dub <- names(table(crums$crc_id)[table(crums$crc_id)>1])
+filter(crc, fall==1, crc_id %in% dub)
+filter(kval2, crc_id %in% dub)
+filter(bg, pat_code == 2480900528)
+filter(crums, crc_id %in% dub)
+# remove the obs with least concurring data. 
+crums <- filter(crums, pad!=199519387,pad!=199900914)
+# vilka i NSHDS finns i crums? Några är med men ej prospektiva fall 
+sum(crc[,"crc_id"] %in% crums$crc_id)
+sum(crc[crc$fall==1,"crc_id"] %in% crums$crc_id)
+crc["crums"] <- ifelse(crc$fall==1&(crc$crc_id %in% crums$crc_id),1,0)
+tab(crc$crums,crc$measurement)
+crums <- dplyr::select(crums, crc_id, pad, alder, opdatum, dodsdat, fudat, lokal:diffgrad, t.typ, t.front,
+                       postkomp.filter, overlevnad.ve.121014, corrstat.ve.121014,
+                       kras2grp, braffinal, mmr.2gr.man, k.neg.hi.lonew, cd3.til) %>%
+                dplyr::rename(diaage.c=alder,opdatum.c=opdatum,dodsdat.c=dodsdat,
+                              lokal.c=lokal, lokal3.c=lokal3, stage.c=stadium, 
+                              t.c=tnm.t, n.c=tnm.n, m.c=tnm.m, diffgrad.c=diffgrad, 
+                              kras.c=kras2grp, braf.c=braffinal, msi.c=mmr.2gr.man, cimp.c=k.neg.hi.lonew,
+                              cd3.til.c=cd3.til)
+#
+tab(crc$folatbg,crc$kvalreg)
+tab(crc$crums,crc$kvalreg)
+crc["study"] <- interaction(crc$fall,crc$kvalreg,crc$folatbg,crc$crums)
+crc$study <- drop.levels(crc$study)
+tab(crc$study)
+levels(crc$study) <- c("not crc","not validated","crums","folat","folat.crums", "kvalreg","kvalreg.crums","kvalreg.folat","kvalreg.folat.crums")
+crc$study <- fct_relevel(crc$study,c("kvalreg.folat.crums","kvalreg.folat","kvalreg.crums","folat.crums", 
+                                             "kvalreg","folat","crums","not validated","not crc"))
+tab(crc$study,crc$measurement)
+crc["validated"] <- crc$study; levels(crc$validated) <- c(rep("validated",7),"not validated","not crc")
+tab(crc$validated,crc$measurement)
+
+# Merga allt: 1542 unika fall, 2733 measurements ---------------
+# kval reg
+crc1 <- filter(crc,fall==1) 
+length(unique(crc1$crc_id))
+crc1 <- merge(crc1,kval2,id="crc_id",all.x=T)
+# Merging worked!
+dim(crc1)
+tab(crc1$kvalreg,crc1$measurement) 
+tapply(crc1$lokal,crc1$kvalreg,summary)
+# Folat:
+crc1 <- merge(crc1,bg,id="pat_code",all.x=T)
+# Merging workded!
+dim(crc1)
+tab(crc1$folatbg,crc1$measurement) 
+tapply(crc1$lokal.bg,crc1$folatbg,summary)
+# CRUMS:
+crc1 <- merge(crc1,crums,id="crc_id",all.x=T)
+# Merging workded!
+dim(crc1)
+tab(crc1$crums,crc1$measurement) 
+tapply(crc1$lokal.c,crc1$crums,summary)
+
+# skapa variabler för när kvalreg/bg/NSHDS diagnosdatum skiljer sig åt:
+crc1 <- mutate(crc1, diadat.bg=as.Date(diadat.bg, format="%m/%d/%Y"), 
+               kvaldiff=ifelse(is.na(diadat.k)==F&DIADAT!=diadat.k,1,0),
+               bgdiff=ifelse(is.na(diadat.bg)==F&DIADAT!=diadat.bg,1,0)
+               )
+# Jämför data:
+crc1 %>% dplyr::select(crc_id, validated, study, kvalreg, folatbg, crums, DIADAT, diadat.k, diadat.bg, 
+                       kvaldiff, bgdiff, 
+                       diaage, diaage.k, diaage.bg, diaage.c,
+                       lokal2, lokal3.bg, lokal3.c, lokal, lokal.bg, lokal.c,  
+                       t, n, m, t.bg, n.bg, m.bg, t.c, n.c, m.c , stage.bg, stage.c, Filter_folate) %>% View()
+# Jämför data för measurement == 1
+crc1 %>% filter(measurement==1) %>% 
+  dplyr::select(crc_id, validated, study, kvalreg, folatbg, crums, DIADAT, diadat.k, diadat.bg, 
+                       kvaldiff, bgdiff, 
+                       diaage, diaage.k, diaage.bg, diaage.c,
+                       lokal2, lokal3.bg, lokal3.c, lokal, lokal.bg, lokal.c,  
+                       t, n, m, t.bg, n.bg, m.bg, t.c, n.c, m.c , stage.bg, stage.c, Filter_folate) %>% View()
+
+# Vilka är validerade? kvalreg startade 2007
+tab(crc1[crc1$measurement==1,"validated"])
+tab(crc1[crc1$measurement==1,"validated"],crc1[crc1$measurement==1,"dyear"])
+# Hur många måste vi kolla upp?
+tab(crc1[crc1$measurement==1,"validated"],crc1[crc1$measurement==1,"kvaldiff"])
+
+# 170 ej validerade + 135 av kvalreg validerade har annat datum än från cancerreg 
+#några har dock "rätt" datum i björns fil
+
+# Molecular data? 
+tab(crc1[crc1$measurement==1,"msi.bg"],crc1[crc1$measurement==1,"delproj"])
+tab(crc1[crc1$measurement==1,"kras.bg"],crc1[crc1$measurement==1,"delproj"])
+tab(crc1[crc1$measurement==1,"braf.bg"],crc1[crc1$measurement==1,"delproj"])
+tab(crc1[crc1$measurement==1,"kras.bg"],crc1[crc1$measurement==1,"kras.c"]) #468 with kras data - 76 MAs
+tab(crc1[crc1$measurement==1,"msi.bg"],crc1[crc1$measurement==1,"msi.c"]) #463 with msi data - 74 MAs
+
+# Exclusions  -------------------------
+crc <- filter(inputcrc,!(id %in% remove$id))
+# Remove faulty data according to EBF rules:
+inputcrc[is.na(inputcrc$langd)==F & (inputcrc$langd<130 | inputcrc$langd>210),"langd"]
+inputcrc[is.na(inputcrc$vikt)==F & (inputcrc$vikt<35),"vikt"]
+inputcrc[is.na(inputcrc$bmi)==F & (inputcrc$bmi<15 | inputcrc$bmi>70),"bmi"]
+inputcrc[is.na(inputcrc$midja)==F & (inputcrc$midja<60),"midja"]
+#
+# Removed observations: n = 267, 258 unika individer tas bort
+remove <- filter(inputcrc, langd<130 | langd>210 | vikt<35 | bmi<15 | bmi>70 | midja<60 | skol<0.5 | skol>15 | 
+                      skol_mo<0.5 | skol_mo>15 |  hdl<0.15 | hdl>7 | stg<0.15 | stg>20 | stg_mo<0.15 | stg_mo>20 |
+                      blods0<1 | blods0>25 | blods2<1 | blods2>35 | sbt<20 | sbt>300 | btsyst<20 | btsyst>300 | 
+                      dbt<20 | dbt>250 | btdiast<20 | btdiast>250)
+# 224890 obs, 125291 individer
+# Ta bort MA: 
+# 183444 obs, 119622 individer
+#crc <- filter(inputcrc,!(id %in% remove$id),delproj!="MA")
+crc <- filter(inputcrc,!(id %in% remove$id))
+ma <- filter(inputcrc,!(id %in% remove$id),delproj=="MA")
 
 # Nya Variabler --------------
 # BMI
@@ -313,16 +457,30 @@ filter(crc,measurement==1,gender==2) %>% dplyr::select(fall,age,langd,vikt,bmi,m
   geom_density(alpha=.3)+
   facet_wrap(~variable,scales="free") + theme_bw() 
 
+# BMI per cohort and case-status
+filter(crc,measurement==1,gender==2) %>% dplyr::select(bmi,delproj,fall) %>% 
+  ggplot(aes(x=bmi, fill=as.factor(fall))) +
+  geom_density(alpha=.3)+
+  facet_wrap(~delproj) + theme_bw() 
+
+# BMI categories per cohort / sex and case-status 
+filter(crc,measurement==1) %>% 
+  dplyr::select(bmi3,delproj,fall,gender) %>% 
+  mutate(bmi3=relevel(bmi3,ref="1")) %>%
+  mutate(bmi3=factor(bmi3,labels=c("<20","20-25","25-30",">30")),gender=factor(gender,labels=c("men","women"))) %>%
+  ggplot(aes(x=as.factor(fall), fill=bmi3)) +
+  geom_bar(position="fill") + facet_grid(gender~delproj) + xlab("CRC status") + ylab("Proportion")
+
 ```
 
 ## Basic statistics NSHDS:
 
 ```{r antal upprepade enkäter}
 #Antal prov per år och cohort
-ggplot(crc,aes(x=as.factor(qyear),fill=delproj)) + 
+crc %>% dplyr::rename() %>% ggplot(crc,aes(x=as.factor(qyear),fill=delproj)) + 
   geom_bar() + 
   theme(axis.text.x = element_text(angle = 55, hjust = 1)) + 
-  facet_wrap(~fall,scales="free") 
+  facet_wrap(~fall,scales="free") + xlab("")
 
 # antal upprepade mätningar per cohort och fall-status
 ggplot(crc,aes(x=as.factor(measurement),fill=delproj)) + geom_bar() + facet_wrap(~fall,scales="free_y") + xlab("Measurement time")
@@ -332,6 +490,9 @@ ggplot(crc,aes(x=age,fill=delproj)) + geom_histogram() + facet_wrap(~delproj,sca
 
 # Diagnos-ålder
 ggplot(crc,aes(x=diaage,fill=delproj)) + geom_histogram() + facet_wrap(~delproj,scales="free_y") + xlab("Age at CRC diagnosis")
+
+# hur många har opererats?
+crc1 %>% filter(measurement==1) %>% ggplot(aes(x=as.factor(dyear),fill=as.factor(opererats))) + geom_bar(position="fill") + xlab("Year of CRC diagnosis")
 
 ```
 
@@ -362,5 +523,72 @@ filter(crc,fall==1) %>% ggplot(aes(x=measurement, y=bmi,group=crc_id)) +
     geom_line(aes(colour=as.factor(gender)), alpha=0.7) +
     #geom_smooth(aes(group=as.factor(crc), color=as.factor(crc)), method="auto") +
     theme_bw()
+```
+
+Venn diagram of crc cases:
+
+```{r,echo=F}
+library(VennDiagram)
+
+# A simple three-set diagram
+grid.newpage()
+venn.plot <- draw.triple.venn(1066, 587, 141,
+281, 106, 63, 43, c("CRC quality registry", "Folate project", "CRUMS"))
+grid.draw(venn.plot)
+
+```
+
+
+Cumulative incidence curves:
+
+```{r,echo=F}
+library(rms)
+
+
+crc2 <- filter(crc,measurement==1)
+crc2$sex <- factor(crc2$gender, labels=c("men","women"))
+crc2 <- transform(crc2, 
+          bmi2=ave(bmi, gender, FUN=function(x) cut(x, breaks=quantile(x,probs=c(0,0.80,1),na.rm=T))))
+crc2["bmi22"] <- cut(crc2$bmi,breaks=c(0,30,1000),labels=c("BMI < 30","BMI > 30"))
+crc2["bmi222"] <- cut(crc2$bmi,breaks=c(0,35,1000),labels=c("<35",">35"))
+
+# Create surv obj
+crc2$survobj <- with(crc2, Surv(attage, fall == 1))
+
+## Kaplan-Meier estimator. The "log-log" confidence interval is preferred.
+km.as.one <- npsurv(formula = survobj~ 1, data = crc2)
+km.by.bmi <- npsurv(formula = survobj~ bmi3, data = crc2)
+
+
+## Plot cumulative probability F(t) = 1 - S(t)
+survplot(km.as.one, fun = function(x) {1 - x}, ylab = "Cumulative Incidence", xlab="Age",
+         label.curves = TRUE, xlim=c(50,90),ylim=c(0,0.08))
+survplot(km.by.bmi, fun = function(x) {1 - x}, ylab = "Cumulative Incidence", xlab="Age",
+         label.curves = TRUE, xlim=c(50,90),ylim=c(0,0.08))
+# By sex
+par(mfrow=c(1,1))
+km.as.sex <- npsurv(formula = survobj~ sex, data = crc2)
+survplot(km.as.sex, fun = function(x) {1 - x}, 
+         ylab = "Cumulative Incidence", xlab="Age",
+         xlim=c(50,85), time.inc = 5 ,ylim=c(0,0.08),grid=TRUE,
+          label.curves = list(keys="lines"), col=c("firebrick","blue"), levels.only=TRUE, lty=1,lwd=2)
+
+legend(55, 0.8,c("Males", "Females"), col=c("firebrick","blue"), box.lty=0)
+
+#By Sex and BMI
+km.by.bmi1 <- npsurv(formula = survobj~ bmi22, data = crc2[crc2$sex=="men",])
+km.by.bmi2 <- npsurv(formula = survobj~ bmi22, data = crc2[crc2$sex=="women",])
+par(mfrow=c(1,2))
+survplot(km.by.bmi1, fun = function(x) {1 - x}, main="Men",
+         ylab = "Cumulative Incidence", xlab="Age",
+         xlim=c(50,85), time.inc = 5 ,ylim=c(0,0.08),grid=TRUE,
+          label.curves = list(keys="lines"), col=c("firebrick1","firebrick4"),levels.only=TRUE, lty=1,lwd=2)
+survplot(km.by.bmi2, fun = function(x) {1 - x}, main="Women",
+         ylab = "Cumulative Incidence", xlab="Age",
+         xlim=c(50,85), time.inc = 5 ,ylim=c(0,0.08),grid=TRUE,
+         label.curves = list(keys="lines"),col=c("firebrick1","firebrick4"),levels.only=TRUE, lty=1,lwd=2)
+# Risk ratios:
+
+
 ```
 

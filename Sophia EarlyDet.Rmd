@@ -41,7 +41,11 @@ source("~/Dropbox/Documents/JOBB ONKO/R/summ.R")
 source("~/Dropbox/Documents/JOBB ONKO/R/RD quartiles.R")
 source('~/Dropbox/Documents/JOBB ONKO/R/table_myte.R')
 source('~/Dropbox/Documents/JOBB ONKO/R/subtype clog.R')
-
+# Table function, show NA
+tab <- function(x,y=1){
+  if(length(y)>1){table(x,y,useNA = "always")
+    } else{table(x,useNA = "always")} 
+} 
 # Import data -------------------------
 # OLINK data - Inflammation 
 p.inflam = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/Sophia early detection/NPX and linear_INF.xlsx",
@@ -206,7 +210,7 @@ natcom = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Dropbox/Documents/JOBB ONKO/S
                            sheet=1, 
                            skipEmptyRows=FALSE)
 
-natcom <- dplyr::select(natcom,-Waist,-TLS) %>% dplyr::rename(Heigth=Length) 
+natcom <- dplyr::select(natcom,-Waist,-TLS)  
 natcom <- natcom[,c("var","Age","Sex","Height","Weight","BMI","SBP","DBP","Smoking","Snus")]
 # Only take proteins we have in our study:
 var.n <- as.factor(gsub('-', '_', natcom$var))
@@ -759,7 +763,6 @@ ggplot(gdata2,aes(x = g6, y = value,fill=provnr))+
   theme_bw()
 
 ```
-
 
 
 Repeated measures analysis (Dmitry method):
@@ -1722,6 +1725,10 @@ anova(lme2)
 #variation in intercept between individuals: basically the same as in the model output, under random effects "Intercept"
 sd(lme2$coefficients$random$person)
 
+# GLS in nlme
+gls1 <- gls(ESM_1 ~ casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med, weights=~person, dat.lme ,method="ML", na.action=na.omit)
+(s <- summary(gls1))
+
 # Fixed plm doesnt work, duplicated obs
 fixed <- plm(ESM_1 ~ casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med, data=dat.lme, index=c("person"), model="within")
 summary(fixed)
@@ -1779,9 +1786,9 @@ anova(models1$IL_8,test="Chisq")
 # Model fitting  -----------------
 
 # Lifestyle variables: KÖR BMI för sig, verkar vara problem
-cov <- c("casecontrol","age","gender","langd","vikt","g6","skol","stg","blods0","blods2","sbt","dbt","smoke","snus","med") 
+cov <- c("casecontrol","age","gender","langd","vikt","phys","skol","stg","blods0","blods2","sbt","dbt","smoke","snus","med") 
 p <- length(cov)
-covm <- c("casecontrol","age","gender","g6","smoke","snus","med","bmi","bmi3","metsz","mets2","ht2","htm") 
+covm <- c("casecontrol","age","gender","phys","smoke","snus","med","bmi","bmi3","metsz","mets2","ht2","htm") 
 pm <- length(covm)
 # Matrix to store estimate in:
 mod1 <- mod2 <- matrix(nrow=ncol(dat),ncol=length(cov))
@@ -1794,7 +1801,7 @@ colnames(coef1) <-  colnames(sd1) <- c("Case","Age","Sex","Height","Weight","Phy
 colnames(mod.mets1) <-  c("BMIgroups","BMIcont","MetSgroups","MetScont","HT","HTmed")
 colnames(coef.mets1) <- colnames(sd.mets1) <- c("BMI<20","BMI25-30","BMI>30","BMIcont","MetSgroups","MetScont","HT","HTmed")
 # rownames
-rownames(mod1) <- rownames(coef1) <- rownames(mod2) <- rownames(coef2) <- rownames(mod.mets1) <- rownames(coef.mets1)  <- rownames(mod.mets2) <- rownames(coef.mets2) <- rownames(sd1) <- rownames(sd.mets1) <- var1 
+rownames(mod1) <- rownames(coef1) <- rownames(mod2) <- rownames(mod.mets1) <- rownames(coef.mets1)  <- rownames(mod.mets2) <- rownames(sd1) <- rownames(sd.mets1) <- var1 
 # intraclass correlations:
 icc <- numeric(length(var1))
 names(icc) <- var1
@@ -1805,33 +1812,34 @@ for(i in var1){
   cat(length(var1)-j," ")
   # MODELs lifestyle
     moddat <- na.omit(data.frame(var=dat.lme[,i],dat.lme[,c("person","provnr",cov)]))
-    g <- lme(var~casecontrol+age+gender+langd+vikt+g6+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
+    g <- lme(var~casecontrol+age+gender+langd+vikt+phys+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
             random =list(~1|person),
             na.action=na.omit, method="ML",
             data=moddat)
     # p-values
     a <-   anova(g)
+    s <- summary(g)
     mod1[j,] <- a$`p-value`[-1]
     # Coefficients
-    coef1[j,] <- g$coefficients$fixed[-1]
+    coef1[j,] <- s$tTable[-1,1]
     # SD
-    sd1[j,] <- sqrt(diag(g$varFix))[-1]
+    sd1[j,] <- s$tTable[-1,2]
     # Intercept : between-subjects variace, residual: within subject variance
     varests <- as.numeric(VarCorr(g)[c(1,2)]) 
     icc[j] <- varests[1]/sum(varests)
  # MODELs MetS
     moddat <- na.omit(data.frame(var=dat.lme[,i],dat.lme[,c("person","provnr",covm)]))
-    g1 <- lme(var~bmi3+casecontrol+age+gender+g6+smoke+snus+med,
+    g1 <- lme(var~bmi3+casecontrol+age+gender+phys+smoke+snus+med,
               random = ~1|person, na.action=na.omit,method="ML",data=moddat)
-    g2 <- lme(var~bmi+casecontrol+age+gender+g6+smoke+snus+med,
+    g2 <- lme(var~bmi+casecontrol+age+gender+phys+smoke+snus+med,
               random = ~1|person, na.action=na.omit,method="ML",data=moddat)
-    g3 <- lme(var~mets2+casecontrol+age+gender+g6+smoke+snus+med,
+    g3 <- lme(var~mets2+casecontrol+age+gender+phys+smoke+snus+med,
               random = ~1|person, na.action=na.omit,method="ML",data=moddat)
-    g4 <- lme(var~metsz+casecontrol+age+gender+g6+smoke+snus+med,
+    g4 <- lme(var~metsz+casecontrol+age+gender+phys+smoke+snus+med,
               random = ~1|person, na.action=na.omit,method="ML",data=moddat)
-    g5 <- lme(var~ht2+casecontrol+age+gender+g6+smoke+snus+med+bmi,
+    g5 <- lme(var~ht2+casecontrol+age+gender+phys+smoke+snus+med+bmi,
               random = ~1|person, na.action=na.omit,method="ML",data=moddat)
-    g6 <- lme(var~htm+casecontrol+age+gender+g6+smoke+snus+med+bmi,
+    g6 <- lme(var~htm+casecontrol+age+gender+phys+smoke+snus+med+bmi,
               random = ~1|person, na.action=na.omit,method="ML",data=moddat)
     # P-values
     mod.mets1[j,1] <- anova(g1)$`p-value`[2]
@@ -1841,19 +1849,19 @@ for(i in var1){
     mod.mets1[j,5] <- anova(g5)$`p-value`[2]
     mod.mets1[j,6] <- anova(g6)$`p-value`[2]
     # Coefficients
-    coef.mets1[j,1:3] <- g1$coefficients$fixed[2:4]
-    coef.mets1[j,4] <- g2$coefficients$fixed[2]
-    coef.mets1[j,5] <- g3$coefficients$fixed[2]
-    coef.mets1[j,6] <- g4$coefficients$fixed[2]
-    coef.mets1[j,7] <- g5$coefficients$fixed[2]
-    coef.mets1[j,8] <- g6$coefficients$fixed[2]
+    coef.mets1[j,1:3] <- summary(g1)$tTable[2:4,1]
+    coef.mets1[j,4] <- summary(g2)$tTable[2,1]
+    coef.mets1[j,5] <- summary(g3)$tTable[2,1]
+    coef.mets1[j,6] <- summary(g4)$tTable[2,1]
+    coef.mets1[j,7] <- summary(g5)$tTable[2,1]
+    coef.mets1[j,8] <- summary(g6)$tTable[2,1]
     # sd
-    sd.mets1[j,1:3] <- sqrt(diag(g1$varFix))[2:4]
-    sd.mets1[j,4] <- sqrt(diag(g2$varFix))[2]
-    sd.mets1[j,5] <- sqrt(diag(g3$varFix))[2]
-    sd.mets1[j,6] <- sqrt(diag(g4$varFix))[2]
-    sd.mets1[j,7] <- sqrt(diag(g5$varFix))[2]
-    sd.mets1[j,8] <- sqrt(diag(g6$varFix))[2]
+    sd.mets1[j,1:3] <- summary(g1)$tTable[2:4,2]
+    sd.mets1[j,4] <- summary(g2)$tTable[2,2]
+    sd.mets1[j,5] <- summary(g3)$tTable[2,2]
+    sd.mets1[j,6] <- summary(g4)$tTable[2,2]
+    sd.mets1[j,7] <- summary(g5)$tTable[2,2]
+    sd.mets1[j,8] <- summary(g6)$tTable[2,2]
 
 }
 
@@ -1873,7 +1881,7 @@ signm
 # Significant BMI and Mets
 mets.bh1 <- apply(mod.mets1,2,p.adjust,method="bonferroni")
 mets.bh2 <- data.frame(var=rownames(mets.bh1),ifelse(mets.bh1<=0.05,1,0)) 
-mets.sign <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,2:5])) %>% filter(sum.sign>0) 
+mets.sign <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,2:7])) %>% filter(sum.sign>0) 
 mets.sign <- mets.sign[order(mets.sign$var),]
 mets.coef <- data.frame(var=rownames(coef.mets1),coef.mets1)
 mets.sign 
@@ -1882,26 +1890,27 @@ mets.sign
 # adj p
 mod.bh0 <- apply(mod1,2,p.adjust,method="bonferroni")
 mod.bh1 <- apply(mod.mets1,2,p.adjust,method="bonferroni")
-sop <- data.frame(padj=mod.bh0[,2],age=coef1[,2],agesd=sd1[,1],
-                  padj=mod.bh0[,3],sex=coef1[,3],sexsd=sd1[,2],
-                  padj=mod.bh0[,4],height=coef1[,4],heightsd=sd1[,3],
-                  padj=mod.bh0[,5],weight=coef1[,5],weightsd=sd1[,4],
-                  padj=mod.bh0[,7],chol=coef1[,7],cholsd=sd1[,6],
-                  padj=mod.bh0[,8],trig=coef1[,8],cholsd=sd1[,7],
-                  padj=mod.bh0[11],sbt=coef1[,11],sbtsd=sd1[,10],
-                  padj=mod.bh0[,12],dbt=coef1[,12],dbtsd=sd1[,11],
+sop <- data.frame(padj=mod.bh0[,2],age=coef1[,2],agesd=sd1[,2],
+                  padj=mod.bh0[,3],sex=coef1[,3],sexsd=sd1[,3],
+                  padj=mod.bh0[,4],height=coef1[,4],heightsd=sd1[,4],
+                  padj=mod.bh0[,5],weight=coef1[,5],weightsd=sd1[,5],
+                  padj=mod.bh0[,7],chol=coef1[,7],cholsd=sd1[,7],
+                  padj=mod.bh0[,8],trig=coef1[,8],cholsd=sd1[,8],
+                  padj=mod.bh0[11],sbt=coef1[,11],sbtsd=sd1[,11],
+                  padj=mod.bh0[,12],dbt=coef1[,12],dbtsd=sd1[,12],
                   padj=mod.bh1[,5],HT=coef.mets1[,7],HTsd=sd.mets1[,7],
                   padj=mod.bh1[,6],HTmed=coef.mets1[,8],HTmedsd=sd.mets1[,8],
                   padj=mod.bh1[,1],BMI20=coef.mets1[,1],BMI20sd=sd.mets1[,1],BMI2530=coef.mets1[,2],BMI2530sd=sd.mets1[,2],BMI30=coef.mets1[,3],BMI30sd=sd.mets1[,3],
                   padj=mod.bh1[,2],BMIcont=coef.mets1[,4],BMIcontsd=sd.mets1[,4],
                   padj=mod.bh1[,3],Mets=coef.mets1[,5],Metssd=sd.mets1[,5],
-                  padj=mod.bh1[,4],Metscont=coef.mets1[,6],Metscontsd=sd.mets1[,6])
+                  padj=mod.bh1[,4],Metscont=coef.mets1[,6],Metscontsd=sd.mets1[,6],
+                  padj=mod.bh0[,6],phys=coef1[,6],physsd=sd1[,6])
 sop["var"] <- rownames(sop)
 sop <- sop[order(sop$var),]
 # Export estimates to excel
 #write.xlsx(rbind(p[p[,2]<0.05,],pd[pd[,2]<0.05,]), file ="hej.xlsx",sheetName = "TestSheet", row.names = T)
 #write.xlsx(cbind(p[nn,],pd[nn,]), file ="hej.xlsx",sheetName = "TestSheet", row.names = T)
-write.xlsx(sop, file ="sophia3.xlsx",sheetName = "TestSheet", row.names = T)
+write.xlsx(sop, file ="sophia4.xlsx",sheetName = "TestSheet", row.names = T)
 
 ```
 
@@ -2004,6 +2013,166 @@ for(i in cov){
 
 ```
 
+### Plot significant variables in mixed models: pooled prov 1 o 
+Not as clear
+
+```{r univariate plots mixed models,echo=F}
+
+# PLOTTING  -----------------
+#Loop som plottar alla singificanta associationer:
+cov <- c("age","gender","langd","vikt","g6","skol","stg","blods0","blods2","sbt","dbt","smoke","snus","med") 
+nam <- c("Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Snus","Medications")
+coef1 <- as.data.frame(coef1)
+sd1 <- as.data.frame(sd1)
+str(dat.lme[,cov])
+k=0
+for(i in cov){
+  k=k+1
+  # Ta ut significants
+  s1 <- signm[,c("var",nam[k])]
+  s1 <- s1[s1[,2]>0,]
+  nn <- as.character(s1[,1])
+  coef <- dplyr::select(coef1,contains(nam[k]))
+  coef <- as.matrix(coef[nn,])
+  sd <- dplyr::select(sd1,contains(nam[k]))
+  sd <- as.matrix(sd[nn,])
+  s1 <- data.frame(s1,Coef=round(coef,4),SE=round(sd,4))
+  cat("\nSignificant associations: \n")
+  print(nam[k])
+  cat("No of proteins = ",dim(s1)[1],"\n")
+  print(s1)
+  #Samma som i Enroth?
+  if(nam[k] %in% names(natcom)){
+    nat1 <- natcom[natcom[,nam[k]]>0,]
+  cat("\nAlso significant in Enroth 2014 \n")
+  print(s1[s1[,1] %in% nat1[,1],])
+  }else cat("\nCovariate not included in Enroth 2014 \n")
+  # Plotta 
+  if(sum(signm[,nam[k]])==0){
+    cat("\nNo significant associations \n")
+    
+  }else if(is.factor(dat.lme[,i])==T){ 
+    gdata <- dat.lme[,c(i,"provnr",nn)]
+    gdata2 <- melt(gdata,id=c(i,"provnr"))
+    # plot
+    print(ggplot(gdata2,aes(y=value,x=gdata2[,i],fill=gdata2[,i]))+
+    geom_boxplot(outlier.shape=NA,alpha=0.2) + #avoid plotting outliers twice
+    geom_point(aes(color=gdata2[,i]),position = position_jitterdodge(), size=0.5)+
+    facet_wrap(~variable,scales="free")+theme_bw()+xlab(nam[k])+ylab(""))
+    #,
+  }else{
+    gdata <- dat.lme[,c(i,"provnr",nn)]
+    gdata$provnr <- as.factor(gdata$provnr)
+    gdata2 <- melt(gdata,id=c(i,"provnr"))
+    # plot
+    print(ggplot(gdata2,aes(y=value,x=gdata2[,i],fill=gdata2[,i]))+
+    geom_smooth(method="lm",color="black")+
+    geom_point(position = position_jitterdodge(), size=0.5)+
+    facet_wrap(~variable,scales="free")+theme_bw()+xlab(nam[k])+ylab(""))
+  } 
+}
+
+
+
+```
+
+### Plot significant BMI/MetS variables:
+
+```{r,echo=F}
+
+# PLOTTING  -----------------
+#Loop som plottar alla singificanta associationer:
+# 2*2 plots: 6*7 inch
+# 3*3 plots: 9*10.5 inch
+
+nam <- colnames(mod.mets1)
+covm <- c("bmi3","bmi","mets2","metsz","ht2","htm")
+str(dat.lme[,covm])
+dat.lme$ht2 <- as.factor(dat.lme$ht2)
+dat.lme$htm <- as.factor(dat.lme$htm)
+dat.lme$bmi3 <- relevel(dat.lme$bmi3,ref="1") 
+k=0
+for(i in covm){
+  k=k+1
+  # Ta ut significants
+  s1 <- mets.sign[,c("var",nam[k])]
+  s1 <- s1[s1[,2]>0,]
+  nn <- as.character(s1[,1])
+  if(nam[k]=="BMIgroups"){
+    s1 <- data.frame(s1,coef=round(mets.coef[nn,2:4],4))
+  }else{ s1 <- data.frame(s1,coef=round(mets.coef[nn,nam[k]],4)) } 
+  cat("\nSignificant associations: \n")
+  print(nam[k])
+  cat("No of proteins = ",dim(s1)[1],"\n")
+  print(s1)
+  # Plotta 
+  if(sum(mets.sign[,nam[k]])==0){
+    cat("\nNo significant associations \n")
+    
+  }else if(is.factor(dat.lme[,i])==T){ 
+    gdata <- dat.lme[,c(i,"provnr",nn)]
+    gdata$provnr <- as.factor(gdata$provnr)
+    gdata2 <- melt(gdata,id=c(i,"provnr"))
+    levels(gdata2$variable) <- gsub('_', '-', levels(gdata2$variable))
+    # plot
+    print(ggplot(gdata2,aes(y=value,x=provnr,fill=gdata2[,i]))+
+    geom_boxplot(outlier.shape=NA,alpha=0.2) + #avoid plotting outliers twice
+    geom_point(aes(color=gdata2[,i]),position = position_jitterdodge(), size=0.5)+
+    facet_wrap(~variable,scales="free")+theme_bw()+xlab(nam[k])+ylab(""))
+  }else{
+    gdata <- dat.lme[,c(i,"provnr",nn)]
+    gdata$provnr <- as.factor(gdata$provnr)
+    gdata2 <- melt(gdata,id=c(i,"provnr"))
+    levels(gdata2$variable) <- gsub('_', '-', levels(gdata2$variable))
+    # plot
+    print(ggplot(gdata2,aes(y=value,x=gdata2[,i],fill=provnr))+
+    geom_smooth(method="lm",color="black")+
+    geom_point(aes(color=provnr),position = position_jitterdodge(), size=0.5)+
+    facet_wrap(~variable,scales="free")+theme_bw()+xlab(nam[k])+ylab(""))
+  } 
+}
+
+```
+
+### Plot variables with potential relation to physical activity:
+
+```{r,echo=F}
+#Variables related to Phys-activity:
+phys1 <- data.frame(var=rownames(mod1),
+                    p=mod1[,"Physical.activity"],padj=p.adjust(mod1[,"Physical.activity"],method="bonferroni"),
+                    coef=coef1[,"Physical.activity"],sd=sd1[,"Physical.activity"])
+phys1 <- filter(phys1,p<0.05)
+#phys1 <- filter(phys1,padj<0.9)
+phys1 <- phys1[order(phys1$p,decreasing = F),]
+nn <- as.character(phys1$var)
+
+# Plot:
+gdata <- dat.lme[,c("phys","provnr",nn)]
+gdata$provnr <- as.factor(gdata$provnr)
+gdata$phys <- as.factor(gdata$phys)
+names(gdata) <- gsub('_', '-', names(gdata))
+gdata2 <- melt(gdata,id=c("phys","provnr"))
+# Print variables:
+phys1
+# plot
+ggplot(na.omit(gdata2),aes(y=value,x=provnr,fill=phys))+
+    geom_boxplot(outlier.shape=NA,alpha=0.2) + #avoid plotting outliers twice
+    geom_point(aes(color=phys),position = position_jitterdodge(), size=0.5)+
+    facet_wrap(~variable,scales="free")+theme_bw()+
+    xlab("Sample")+ylab("") + 
+    scale_colour_discrete(guide = FALSE) + 
+    scale_fill_discrete(name = "Physical activity")
+
+#as continous:
+#ggplot(gdata2,aes(y=value,x=as.numeric(phys),fill=provnr))+
+#    geom_smooth(aes(color=provnr),method="lm",color="black") +
+#    geom_point(aes(color=provnr),position = position_jitterdodge(), size=0.5)+
+#    facet_wrap(~variable,scales="free")+theme_bw()+xlab("Physical activity")+ylab("")
+
+levels(phys1$var) <- gsub('_', '-', levels(phys1$var))
+write.xlsx(phys1, file ="phys2 significants.xlsx",sheetName = "TestSheet", row.names = T)
+
+```
 
 
 #Correlations between markers using adjusted and transformed data
@@ -2028,6 +2197,9 @@ Circos correlations:
 PROV 1
 ```{r,echo=F}
 #Data fix --------------------
+rdata1 <-  filter(dat.lme, provnr==1|2) %>% dplyr::select(one_of(var1),-TRAIL) 
+names(rdata1) <- gsub('_', '-', names(rdata1))
+
 # Correlations prov 1
 str(rdata1)
 cor1 <- cor(rdata1,method="spearman",use="pairwise.complete.obs")
@@ -2058,7 +2230,7 @@ col <-  grid.col[match(cor22[,1],names(grid.col))]
 col[cor22[3] < 0.80] = "gray90"
 
 # Scale correlations
-cor22[,3] <- (1/(1-cor22[,3]))^2
+cor22[,3] <- (1/(1-cor22[,3]))
 
 # Plot
 chordDiagram(cor22, 
@@ -2082,13 +2254,64 @@ circos.clear()
 
 ```
 
-Circos correlations:
-PROV 2
+Scatterplotmatrix
+```{r,echo=F}
+#
+panel.cor <- function(x, y, digits = 2, cex.cor, ...)
+{
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(0, 1, 0, 1))
+  # correlation coefficient
+  r <- cor(x, y,method="spearman",use="complete")
+  txt <- format(c(r, 0.123456789), digits = digits)[1]
+  txt <- paste("r= ", txt, sep = "")
+  text(0.5, 0.6, txt)
+  
+  # p-value calculation
+  p <- cor.test(x, y)$p.value
+  txt2 <- format(c(p, 0.123456789), digits = digits)[1]
+  txt2 <- paste("p= ", txt2, sep = "")
+  if(p<0.01) txt2 <- paste("p= ", "<0.01", sep = "")
+  text(0.5, 0.4, txt2)
+}
+
+#Diagonal histograms
+panel.hist <- function(x, ...)
+{
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(usr[1:2], 0, 1.5) )
+  h <- hist(x, plot = FALSE)
+  breaks <- h$breaks; nB <- length(breaks)
+  y <- h$counts; y <- y/max(y)
+  rect(breaks[-nB], 0, breaks[-1], y, ...)
+}
+
+#plot with pairs, 9*10 inch
+#data = data.frame with numeric variables
+pairs(rdata1[,c("SCAMP3", "TXLNA","STAMPB","SIRT2","AXIN1", "LYN", "ABL1","LAP.TGF-beta-1")], diag.panel = panel.hist, upper.panel = panel.smooth,lower.panel = panel.cor,pch=19,cex=0.2,cex.labels=1.2, gap=0.5,col.smooth="black",col="gray")
+
+```
+
+Circos correlations - signiricant in metS:
+
 ```{r,echo=F}
 #Data fix --------------------
-# Correlations prov 2
-str(rdata2)
-cor1 <- cor(rdata2,method="spearman",use="pairwise.complete.obs")
+# Significant BMI and Mets
+m1 <- apply(mod.mets1[,-c(6)],2,p.adjust,method="bonferroni")
+m2 <- apply(mod1[,c("Colesterol","Triglycerides","P.glucose")],2,p.adjust,method="bonferroni")
+mm <- cbind(m1,m2)
+mm <- data.frame(var=rownames(mm),ifelse(mm<=0.05,1,0)) 
+mets.sign <- mutate(mm,sum.sign=rowSums(mm[,2:ncol(mm)])) %>% filter(sum.sign>0) 
+mets.sign <- mets.sign[order(mets.sign$var),]
+mets.sign 
+
+# TRAIL is the same as TNFSF10 so remove
+rdata1 <-  filter(dat.lme, provnr==1|2) %>% dplyr::select(one_of(as.character(mets.sign$var)),-TRAIL)
+names(rdata1) <- gsub('_', '-', names(rdata1))
+
+# Correlations prov 1
+str(rdata1)
+cor1 <- cor(rdata1,method="spearman",use="pairwise.complete.obs")
 # Melt
 cor11 <- melt(cor1);nrow(cor11)
 #Remove diagnonal in correlations matrix
@@ -2097,12 +2320,10 @@ cor11 <- cor11[cor11[,1]!=cor11[,2],];nrow(cor11)
 sum(cor11[,3]<0 & abs(cor11[,3])>0.5)
 # R^2
 cor11[,3] <- cor11[,3]^2
-# Variable indicating R^2>0.5
-cor11[,4] <- ifelse(cor11[,3]>=0.5,1,0) 
 # Remove same correlations 
 cor11 <- cor11[!duplicated(cor11[,3]),]
 # Only those above 0.5
-cor22 <- cor11[cor11[,4]==1,1:3]
+cor22 <- cor11
 
 # Circos plot  --------------------
 # Set grid colors
@@ -2113,10 +2334,10 @@ names(grid.col)=uniq
 
 #Highlight cols
 col <-  grid.col[match(cor22[,1],names(grid.col))]
-col[cor22[3] < 0.80] = "gray90"
+col[cor22[3] < 0.2] = "gray90"
 
 # Scale correlations
-cor22[,3] <- (1/(1-cor22[,3]))^2
+cor22[,3] <- (1/(1-cor22[,3]))
 
 # Plot
 chordDiagram(cor22, 
@@ -2183,7 +2404,6 @@ circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
 circos.clear() 
 
 ```
-
 
 
 Circos lifestyle Prov 2
@@ -2320,6 +2540,8 @@ lf1 <- dplyr::select(signm,-sum.sign) %>% melt(id="var")
 lf1 <- lf1[lf1$value>0,]
 head(lf1);nrow(lf1)
 levels(lf1$var) <- gsub('_', '-', levels(lf1$var))
+# lf1 is N*3 matrix, were columns correspond to c(variable 1, variable 2, measure),
+# N is number of associations
 
 # Circos plot  --------------------
 # Start degree so that lifestyle are at the right
@@ -2361,28 +2583,49 @@ Circos metabolomics metod - MetS and BMI
 par(mar=c(5.1,4.1,4.1,2.1))
 
 #Data fix --------------------
-lf1 <- dplyr::select(mets.sign,-sum.sign) %>% melt(id="var")
+# Significant BMI and Mets
+m1 <- apply(mod.mets1[,-c(6)],2,p.adjust,method="bonferroni")
+m2 <- apply(mod1[,c("Colesterol","Triglycerides","P.glucose")],2,p.adjust,method="bonferroni")
+mm <- cbind(m1,m2)
+mm <- data.frame(var=rownames(mm),ifelse(mm<=0.05,1,0)) 
+mets.sign <- mutate(mm,sum.sign=rowSums(mm[,2:ncol(mm)])) %>% filter(sum.sign>0) 
+mets.sign <- mets.sign[order(mets.sign$var),]
+mets.sign 
+
+# Data frame:
+lf1 <- filter(mets.sign,var!="TRAIL") %>% dplyr::select(-sum.sign) %>% melt(id="var") %>% 
+        mutate(variable=factor(variable, labels=c("BMI (groups)","BMI (continuous)","MetS (groups)", "MetS (score)", "Hypertension","Cholesterol","Triglycerides","P-glucose"))) #%>% filter(variable!="HT",variable!="HT medication")
 lf1 <- lf1[lf1$value>0,]
 head(lf1);nrow(lf1)
 levels(lf1$var) <- gsub('_', '-', levels(lf1$var))
+lf1$var <- as.character(lf1$var)
+#
+#Add empty labels for Colesterol-DBP
+lf1 <- rbind(lf1,c(" ",levels(lf1$variable)[6],0.5))
+lf1 <- rbind(lf1,c(" ",levels(lf1$variable)[8],0.5))
+#
+lf1$variable <- as.character(lf1$variable)
+lf1$value <- as.numeric(lf1$value)
 
 # Circos plot  --------------------
 # Start degree so that lifestyle are at the right
 # gap degree to seperate lifestyle from proteins
-circos.par(start.degree=290,
+circos.par(start.degree=277,
            gap.degree=c(rep(2, length(unique(lf1[[1]]))-1), 12, rep(2, length(unique(lf1[[2]]))-1), 12))
 
 # Set grid colors
 uniq <- union(lf1[[1]], lf1[[2]])
-col3 <- colorRampPalette(c("dodgerblue","forestgreen","gold", "red", "blue"))
+col3 <- colorRampPalette(c("dodgerblue", "forestgreen", "darkgoldenrod1", "red", "blue"))
 grid.col=col3(length(uniq))
 names(grid.col)=uniq
+grid.col[12] <- "white"
 
 # Plot
 chordDiagram(lf1, 
              annotationTrack = c("grid"),
              preAllocateTracks = list(track.height = 0.3),
-             grid.col = grid.col) 
+             grid.col = grid.col, 
+             link.largest.ontop = TRUE) 
 
 # Add labels that are horizontal: 
 circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) { 
@@ -2399,6 +2642,69 @@ circos.clear()
 
 ```
 
+Circos plot: Anneli PA
+  
+```{r,echo=F}
+par(mar=c(5.1,4.1,4.1,2.1))
+
+#Data fix --------------------
+# Significant BMI and Mets
+m1 <- apply(mod.mets1[,c("BMIgroups","BMIcont")],2,p.adjust,method="bonferroni")
+m2 <- apply(mod1[,c("Age","Sex","Smoking","Physical.activity")],2,p.adjust,method="bonferroni")
+mm <- cbind(m1,m2)
+mm <- data.frame(var=rownames(mm),ifelse(mm<=0.05,1,0)) 
+mets.sign <- mutate(mm,sum.sign=rowSums(mm[,2:ncol(mm)])) %>% filter(sum.sign>0) 
+mets.sign <- mets.sign[order(mets.sign$var),]
+mets.sign <- dplyr::select(mets.sign, var, Age, BMIgroups:sum.sign)
+
+# Data frame:
+lf1 <- filter(mets.sign,var!="TRAIL") %>% dplyr::select(-sum.sign) %>% melt(id="var") %>% 
+        mutate(variable=factor(variable, labels=c("Age","BMI (groups)","BMI (continuous)","Sex","Smoking","Physical activity"))) #%>% filter(variable!="HT",variable!="HT medication")
+lf1 <- lf1[lf1$value>0,]
+head(lf1);nrow(lf1)
+levels(lf1$var) <- gsub('_', '-', levels(lf1$var))
+lf1$var <- as.character(lf1$var)
+#
+#Add empty labels for PA
+lf1 <- rbind(lf1,c(" ",levels(lf1$variable)[6],0.5))
+#
+lf1$variable <- as.character(lf1$variable)
+lf1$value <- as.numeric(lf1$value)
+
+# Circos plot  --------------------
+# Start degree so that lifestyle are at the right
+# gap degree to seperate lifestyle from proteins
+circos.par(start.degree=310,
+           gap.degree=c(rep(2, length(unique(lf1[[1]]))-1), 12, rep(2, length(unique(lf1[[2]]))-1), 12))
+
+# Set grid colors
+uniq <- union(lf1[[1]], lf1[[2]])
+col3 <- colorRampPalette(c("dodgerblue", "forestgreen", "darkgoldenrod1", "red", "blue"))
+grid.col=col3(length(uniq))
+names(grid.col)=uniq
+grid.col[45] <- "white"
+
+# Plot
+chordDiagram(lf1, 
+             annotationTrack = c("grid"),
+             preAllocateTracks = list(track.height = 0.3),
+             grid.col = grid.col, 
+             link.largest.ontop = TRUE) 
+
+# Add labels that are horizontal: 
+circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) { 
+  xlim = get.cell.meta.data("xlim")
+  ylim = get.cell.meta.data("ylim")
+  sector.name = get.cell.meta.data("sector.index") 
+  circos.text(mean(xlim), ylim[1], sector.name, facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
+}, bg.border = NA) # here set bg.border to NA is important
+
+# Clear graphics
+circos.clear() 
+
+
+
+```
 
 
 
