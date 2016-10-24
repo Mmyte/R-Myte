@@ -251,103 +251,39 @@ summary(select(dat1,contains("HGF")))
 
 
 #heatmap of levels
-```{r,echo=F}
-# Remove many NAs
-na1 <- apply(dat1[,var],2,function(x) sum(is.na(x))/length(x))
-plot(na1);abline(h=0.5)
-na1[na1>=0.5]
-manyna1 <- names(na1[na1>=0.5])
+Rows are variables, columns are observations. Observations are sorted according to case. Gray squares indicate missing observations.
 
-# Data
-corre <- filter(dat1,provnr==1)%>%
-          dplyr::select(one_of(var)) %>%
-          dplyr::select(-one_of(c(manyna1)))
+```{r 1 heatmap all IP, fig.width=12, fig.height=8, message=FALSE, warnings=FALSE}
 
-dim(corre)
+# Data fix ----------------- 8*8 inch pic
+dat11 <- dplyr::select(dat1, provnr, casecontrol, person, one_of(var))  %>% 
+          mutate(case=factor(casecontrol,labels=c("control","case")),
+                 case.provnr=interaction(case,provnr),cpnum=as.numeric(case.provnr)) %>% 
+          unite(person_case_provnr,case.provnr, person, sep=" ",remove=F)
 
-# Sort columns
-n <- apply(corre,2,function(x) sum(is.na(x)))
-n <- sort(n,decreasing=T)
-corre <- corre[names(n)]
+# remove NAs
+con <- dplyr::select(dat11, one_of(var),person_case_provnr,cpnum) %>% arrange(cpnum) %>% dplyr::select(-cpnum)
 
-# Sort rows according to ammount of NA
-nr <- apply(corre,1,function(x) sum(is.na(x)))
-names(nr) <- 1:length(nr)
-nr <- sort(nr,decreasing=F)
-#corre[is.na(corre)] <- 0
-#corre <- apply(corre,2,sort,decreasing=T)
+# Sort columns after amount of NA
+n <- apply(con[,var],2,function(x) sum(is.na(x)))
+n <- sort(n,decreasing=F)
+n <- names(n)
+
 
 # Heatmap --------------------
 # get rownames
-corre["names"] <- rownames(corre)
-df <- melt(corre,id.vars="names")
-df$names <- factor(df$names,levels=names(nr))
+df <- melt(con,id.vars="person_case_provnr")
+df$person_case_provnr <- factor(df$person_case_provnr,levels=as.character(con$person_case_provnr))
+df$variable <- factor(df$variable,levels=n)
+levels(df$variable) <- gsub("_","-",levels(df$variable))
 
-g1 <- ggplot(df, aes(names, variable)) + 
+ggplot(df, aes(y = variable, x = person_case_provnr)) + 
    geom_tile(aes(fill = value), colour = "white") + 
-   scale_fill_gradient(low = "darkblue",high = "yellow",na.value="white") +
-   theme_bw()+labs(x = "", y = "")+
-   theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(),
-     legend.position="right")
+   scale_fill_gradient(low = "dodgerblue4", high = "gold", na.value="gray") +
+   theme(axis.text.x = element_text(angle = 55, hjust = 1))+
+   geom_vline(xintercept=which(levels(df$person_case_provnr) %in% c("control.1 22_0", "case.1 36_1", "control.2 48_0")) + c(0.5, 0.5,0.5), col="black")
+   
 
-# Remove legend to add to own square
-get_legend<-function(myggplot){
-  tmp <- ggplot_gtable(ggplot_build(myggplot))
-  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
-  legend <- tmp$grobs[[leg]]
-  return(legend)
-}
-legend <- get_legend(g1)
-g1 <- g1+theme(legend.position="none")
-
-# Margin plots
-left <- data.frame(name=1:length(n),value=round(100*n/length(n),0))
-top <- data.frame(name=1:length(nr),value=round(100*nr/length(nr),0))
-
-gleft <- ggplot(left, aes(x=name,y=value))+geom_line()+ geom_line(stat="identity")+theme_bw()+labs(x = "", y = "")+
-  ylim(c(0,100))+xlim(c(1,182))+
-  coord_flip()+ 
-  ggtitle("Percent values below detection limit per protein")+ 
-    theme(
-     axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(),
-     plot.margin = unit(c(0,0,-0.5,0),"cm"),
-     panel.margin = unit(c(0,0,-0.5,0),"cm"),
-     plot.title = element_text(size=10))
-
-gtop <- ggplot(top, aes(x=name,y=value)) + geom_line()+theme_bw()+labs(x = "", y = "")+
-  ylim(c(0,100))+xlim(c(1,133))+
-  ggtitle("Percent values below detection limit per indivual")+
-  theme(
-     axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(),
-     plot.margin = unit(c(0,0,-0.5,0),"cm"),
-     panel.margin = unit(c(0,0,-0.5,0),"cm"),
-     plot.title = element_text(size=10))
-     
-
-# Grid-arrange plot
-lay <- rbind(c(NA,1,1,2),
-             c(3,4,4,2),
-             c(3,4,4,2))
-             
-grid.arrange(gtop,legend,gleft,g1,layout_matrix=lay,widths=c(0.75,2,2,0.5),heights=c(0.75,2,2)) #7*10 inches
-
-
-
-
-# ggMarginal
-g1 <- ggplot(df, aes(names, variable)) + 
-   geom_tile(aes(fill = value), colour = "white") + 
-   scale_fill_gradient(low = "darkblue",high = "yellow",na.value="white") +
-   theme_bw()+labs(x = "", y = "")+
-   theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(),
-     legend.position="left")
-
-ggMarginal(g1+
-  theme_bw()+
-  labs(x = "", y = "")+
-  theme(axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(),
-  legend.position="left"),
-  data=top,x="value",y="name")
 
 ```
 
@@ -1927,9 +1863,10 @@ ggplot(gdata,aes(x=reorder(var1,icc),y=icc)) +
 ```
 
 ### Proteins with low and high icc?
+ICC = proportion of total variance that is "between groups." 
 Proteins with low ICCs, "more black", that is higher variation within indiviuals between the two samples. 
+Proteins with high ICCs, "less black", more variation between individuals. Most individuals have little diff between two samples.
 
-Proteins with high ICCs, "less black", more variation between individuals. Most individuals have little diff between two samples. 
 ```{r plot variables with extreme ICC}
 # ICC under 0.1 - little of variation is between individuals (more within individuals)
 icclow <- names(icc[icc<0.05])
@@ -2193,8 +2130,8 @@ heatmap.2(heat,dendrogram = "row",
 
 ```
 
-Circos correlations:
-PROV 1
+Circos correlations: ALL proteins, plot those with R2 > 0.5. Color those with R2 > 0.8
+PROV 1 o 2
 ```{r,echo=F}
 #Data fix --------------------
 rdata1 <-  filter(dat.lme, provnr==1|2) %>% dplyr::select(one_of(var1),-TRAIL) 
@@ -2230,7 +2167,8 @@ col <-  grid.col[match(cor22[,1],names(grid.col))]
 col[cor22[3] < 0.80] = "gray90"
 
 # Scale correlations
-cor22[,3] <- (1/(1-cor22[,3]))
+#cor22[,3] <- (1/(1-cor22[,3]))
+cor22[,3] <- scale(cor22[,3])
 
 # Plot
 chordDiagram(cor22, 
@@ -2290,6 +2228,7 @@ panel.hist <- function(x, ...)
 #data = data.frame with numeric variables
 pairs(rdata1[,c("SCAMP3", "TXLNA","STAMPB","SIRT2","AXIN1", "LYN", "ABL1","LAP.TGF-beta-1")], diag.panel = panel.hist, upper.panel = panel.smooth,lower.panel = panel.cor,pch=19,cex=0.2,cex.labels=1.2, gap=0.5,col.smooth="black",col="gray")
 
+
 ```
 
 Circos correlations - signiricant in metS:
@@ -2337,7 +2276,9 @@ col <-  grid.col[match(cor22[,1],names(grid.col))]
 col[cor22[3] < 0.2] = "gray90"
 
 # Scale correlations
-cor22[,3] <- (1/(1-cor22[,3]))
+#cor22[,3] <- (1/(1-cor22[,3]))
+cor22[,3] <- scale(cor22[,3])
+
 
 # Plot
 chordDiagram(cor22, 
@@ -2358,6 +2299,13 @@ circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
 
 # Clear graphics
 circos.clear() 
+
+```
+
+Scatterplot matrix METS
+```{r}
+#data = data.frame with numeric variables
+pairs(rdata1, diag.panel = panel.hist, upper.panel = panel.smooth,lower.panel = panel.cor,pch=19,cex=0.2,cex.labels=1.2, gap=0.5,col.smooth="black",col="gray")
 
 ```
 
