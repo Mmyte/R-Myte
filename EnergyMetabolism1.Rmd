@@ -292,18 +292,20 @@ crc2 <- crc1 %>% filter(measurement==1) %>%
 #
 # Remove faulty data according to EBF rules, how many with faulty data for some variables: 
 # Removed observations: n = 267. n = 258 unika individer tas bort
-remove <- filter(inputcrc, langd<130 | langd>210 | vikt<35 | bmi<15 | bmi>70 | midja<60 | skol<0.5 | skol>15 | 
+remove <- filter(crc, langd<130 | langd>210 | vikt<35 | bmi<15 | bmi>70 | midja<60 | skol<0.5 | skol>15 | 
                       skol_mo<0.5 | skol_mo>15 |  hdl<0.15 | hdl>7 | stg<0.15 | stg>20 | stg_mo<0.15 | stg_mo>20 |
                       blods0<1 | blods0>25 | blods2<1 | blods2>35 | sbt<20 | sbt>300 | btsyst<20 | btsyst>300 | 
                       dbt<20 | dbt>250 | btdiast<20 | btdiast>250)
 # 224890 obs, 125291 individer
 # Ta bort MA: 
 # 183444 obs, 119622 individer
-crc <- filter(inputcrc,!(id %in% remove$id),delproj!="MA")
-ma <- filter(inputcrc,!(id %in% remove$id),delproj=="MA")
+crc <- filter(crc,!(id %in% remove$id),delproj!="MA")
+ma <- filter(crc,!(id %in% remove$id),delproj=="MA")
 #crc <- filter(inputcrc,!(id %in% remove$id))
 
 # Nya Variabler --------------
+#crc fall variabel:
+crc["fall"] <- ifelse(crc$crc==1,1,0)
 # BMI
 crc["bmi3"] <- cut(crc$bmi,breaks=c(0,20,25,30,70),right=T,labels=c(1,2,3,4))
 #crc$bmi3 <- fct_relevel(crc$bmi3,"2")
@@ -387,9 +389,9 @@ crc$diabetesbehandling_d <- as.factor(crc$diabetesbehandling_d)
 levels(crc$diabetesbehandling_d) <- c(0,1,9999,9999)
 dplyr::select(crc,diabetesbehandling_a:diabetesbehandling_d) %>% apply(2,tab)
 
-# Physical activity
-#
-# Occupational VIP:
+# 
+# Occupationl Physical activity
+# VIP:
 dplyr::select(crc,g2_a:g2_e) %>% apply(2,tab)
 crc <- mutate(crc,g2_a=na_if(g2_a,8888),g2_b=na_if(g2_b,8888),g2_c=na_if(g2_c,8888),g2_d=na_if(g2_d,8888),g2_e=na_if(g2_e,8888))
 crc <- mutate(crc,g2_a=na_if(g2_a,9999),g2_b=na_if(g2_b,9999),g2_c=na_if(g2_c,9999),g2_d=na_if(g2_d,9999),g2_e=na_if(g2_e,9999))
@@ -405,42 +407,35 @@ crc[is.na(crc$g2_e)==F&crc$g2_e==1,"g2"] <- 5
 crc["g2_sum"] <- crc %>% dplyr::select(g2_a:g2_e) %>% rowSums(.,na.rm=T)
 sum(crc$g2_sum>1)
 crc[crc$g2_sum>1,"g2"] <- NA
-
-# Occupational MONICA:
-crc$MONICA_motion_arbete <- as.factor(crc$MONICA_motion_arbete)
-table(crc$MONICA_motion_arbete)
-crc$MONICA_motion_arbete <- fct_collapse(crc$MONICA_motion_arbete,"9999"=c("8888","9999"))
-crc$MONICA_motion_arbete <- fct_expand(crc$MONICA_motion_arbete,"6666")
-crc$MONICA_motion_arbete <- fct_relevel(crc$MONICA_motion_arbete,c(1,2,3,4,5,6666,9999))
+#
+# MONICA:
+crc <- crc %>% mutate(crc, MONICA_motion_arbete=na_if(MONICA_motion_arbete,8888),MONICA_motion_arbete=na_if(MONICA_motion_arbete,9999))
 # COMBINED variable VIP and MONICA:
-crc["phys.occ"] <- ifelse(crc$delproj=="MO"&crc$qyear!=2014,crc$MONICA_motion_arbete,crc$g2)
-crc$phys.occ <- as.factor(crc$phys.occ)
-levels(crc$phys.occ) <- c(1,2,3,4,5,6666,9999)
+crc["g2_comb"] <- coalesce(crc$g2, crc$MONICA_motion_arbete)
+
+# Recreationalphysical activity
+# VIP
+dplyr::select(crc,g6,motion:motion2,MONICA_motion_fritid_86_09) %>% apply(2,tab)
+crc <- mutate(crc,g6=na_if(g6,8888),motion=na_if(motion,8888),motion2=na_if(motion2,8888), MONICA_motion_fritid_86_09=na_if(MONICA_motion_fritid_86_09,8888))
+crc <- mutate(crc,g6=na_if(g6,6666),motion=na_if(motion,6666),motion2=na_if(motion2,6666), MONICA_motion_fritid_86_09=na_if(MONICA_motion_fritid_86_09,6666))
+crc <- mutate(crc,g6=na_if(g6,9999),motion=na_if(motion,9999),motion2=na_if(motion2,9999), MONICA_motion_fritid_86_09=na_if(MONICA_motion_fritid_86_09,9999))
+# combine variables for VIP:
+crc$motion <- crc$motion+1
+crc["g6_vip"] <- coalesce(crc$g6,crc$motion,crc$motion2)
+# combine VIP and MONICA:
+
 #
-# Recreational VIP
-dplyr::select(crc,g6,motion:motion2,MONICA_motion_fritid_86_09) %>% apply(2,table)
-# Harmonize motion variables for different years:
-crc <- mutate(crc, g6 = as.factor(g6), motion = as.factor(motion), motion2 = as.factor(motion2), MONICA_motion_fritid_86_09 = as.factor(MONICA_motion_fritid_86_09))
-levels(crc$g6) <- c(1,2,3,4,5,9999,9999,9999)
-levels(crc$motion) <- c(1,2,3,4,5,9999,9999)
-levels(crc$motion2) <- c(1,2,3,4,5,9999,9999)
-crc <- mutate(crc, g6=na_if(g6,9999), motion=na_if(motion,9999), motion2=na_if(motion2,9999))
-# coeleqce into one variable with all motion in one: (Problem? Just use g6?)
-crc["phys.vip"] <- coalesce(crc$g6,crc$motion,crc$motion2)
-crc <- replace_na(crc,list(phys.vip=9999))
-table(crc$phys.vip)
-#
-table(crc$MONICA_motion_fritid_86_09)
-table(crc$MONICA_motion_fritid_86_09,crc$qyear)
+tab(crc$MONICA_motion_fritid_86_09)
+crc$g6_MONICA <- as.factor(crc$MONICA_motion_fritid_86_09)
+levels(crc$g6_MONICA) <- c(1,2,3,4,5,5,1,2,3,4,5)
+crc$g6_MONICA <- as.numeric(crc$g6_MONICA)
 # Combined variable MONICA and VIP:
-crc["phys.rec"] <- ifelse(crc$delproj=="MO"&crc$qyear!=2014,crc$MONICA_motion_arbete,crc$g2)
+crc["g6_comb"] <- coalesce(crc$g6_vip, crc$g6_MONICA)
 
-
-
+#
+#
 # Final remove all uncessesary variables:
-crc <- dplyr::select(crc,-contains("med_"),-smartmed,-andra_mediciner,-sm_status,-sn_status)
-summary(crc1)
-
+crc <- dplyr::select(crc, crc_id, crc, fall, measurement:dbt, uppfdat:g6_comb)
 
 
 # MISSING VIP:
