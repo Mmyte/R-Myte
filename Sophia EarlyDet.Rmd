@@ -33,6 +33,7 @@ library(broom)
 library(forcats)
 library(circlize)
 library(RColorBrewer)
+library(minfi)
 
 # Functions ---------------------------
 source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
@@ -290,121 +291,74 @@ ggplot(df, aes(y = variable, x = person_case_provnr)) +
 
 Cluster analysis:
 
-```{r,echo=F}
-# Data fix -----------------
+```{r 2 standardized cluster analysis ,echo=F, fig.pos = "H",fig.width=8, fig.height=8}
+
+# Data fix ----------------- 8*8 inch pic
 # Remove many NAs
 na1 <- apply(dat1[,var],2,function(x) sum(is.na(x))/length(x))
 plot(na1);abline(h=0.5)
-na1[na1>=0.5]
-manyna1 <- names(na1[na1>=0.5])
+na1[na1>=0.15]
+manyna1 <- names(na1[na1>=0.15])
 
 #
 # Data - provnr --------------------
-con <-  dplyr::select(dat1,provnr,one_of(var)) %>%
-          dplyr::select(-one_of(c(manyna1)))
-con[,-1] <- scale(con[,-1])
-heat <- as.matrix(con[,-c(1)])
+corre <-  dplyr::select(dat1,provnr, gender, age4, bmi2, stg2, ht2, gluc2, mets2, one_of(var)) %>%
+        dplyr::select(-one_of(c(manyna1))) %>% 
+        mutate(bmi2=coalesce(as.integer(bmi2), 9999L), stg2=coalesce(as.integer(stg2), 9999L),
+               ht2=coalesce(as.integer(ht2), 9999L), mets2=coalesce(as.integer(mets2), 9999L)) 
+
+var1 <- dplyr::select(corre, IL_8:FR_alpha) %>% names()
+corre[,var1] <- scale(corre[,var1])
+#Remove NAs
+con <- na.omit(corre) 
+
+heat <- dplyr::select(con, IL_8:FR_alpha)
+heat <- heat %>% as.matrix()
 heat <- t(heat)
 
-#col legend
-fcol <- ifelse(con$provnr==1,"firebrick","forestgreen")
+#col legends
+pal <- brewer.pal(4,"Set1")
+con$stg2 <- as.character(factor(con$stg2, labels=c("gray95","black","gray")))
+con$gluc2 <- as.character(factor(con$gluc2, labels=c("gray95","black")))
+con$ht2 <-as.character(factor(con$ht2, labels=c("gray95","black","gray"))) 
+con$bmi2 <- as.character(factor(con$bmi2, labels=c("gray95","black","gray")))
+con$mets2 <- as.character(factor(con$mets2, labels=c("gray95","black","gray")))
+con$gender <- as.character(factor(con$gender, labels=c("darkorange","brown")))
+con$age4 <- as.character(factor(con$age4, labels=c("cyan","dodgerblue1","dodgerblue4","purple")))
+con$provnr <- as.character(factor(con$provnr, labels=c("#F8766D", "#00BA38")))
+
+fcol <- dplyr::select(con, provnr, age4, gender,mets2, bmi2, ht2, gluc2, stg2) %>% 
+  dplyr::rename(Sample=provnr, Age=age4, Sex=gender, MetS=mets2, BMI_above_30=bmi2, Hypertension=ht2, 
+                Raised_glucose=gluc2, Raised_triglycerides=stg2) %>% as.matrix()
+colnames(fcol) <- gsub("_"," ",colnames(fcol))
+
+# col heatmap
+#my_palette <- colorRampPalette(c("dodgerblue4","goldenrod"))(200)
+my_palette <- colorRampPalette(c("dodgerblue4","gray90","goldenrod"))(200)
 
 # distance/cluster functions
 mydist=function(c) {dist(c,method="euclidian")}
 myclust=function(c) {hclust(c,method="average")}
+dist.pear <- function(x) as.dist(1-cor(t(x),method="spearman",use="pairwise.complete.obs"))
 
 # Plot Heatmap -----------------
-heatmap.2(heat,
+heatmap.3(heat,
           dendrogram = "both",
           trace="none",
           hclustfun=myclust,
-          distfun =mydist,col=bluered(256),
-          margins=c(6,12),srtCol=90,ColSideColors=fcol,key.title="Color key",key.xlab="standardized log-concentration")
+          distfun = mydist,
+          col=my_palette,
+          margins=c(6,12), KeyValueName=" ",
+          ColSideColors=fcol,ColSideColorsSize=6, RowSideColorsSize=2)
 
-legend("topright", legend = c("Prov 1", "Prov 2"),fill=c("firebrick","forestgreen"),border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
-
-
-#
-# Data - METs --------------------
-con <- filter(dat1,provnr==1)%>%
-          dplyr::select(mets2,one_of(var)) %>%
-          dplyr::select(-one_of(c(manyna1)))
-con[,-1] <- scale(con[,-1])
-heat <- as.matrix(con[,-c(1)])
-heat <- t(heat)
-
-#col legend
-fcol <- ifelse(con$mets2==1,"firebrick","forestgreen")
-
-# distance/cluster functions
-mydist=function(c) {dist(c,method="euclidian")}
-myclust=function(c) {hclust(c,method="average")}
-
-# Plot Heatmap -----------------
-heatmap.2(heat,
-          dendrogram = "both",
-          trace="none",
-          hclustfun=myclust,
-          distfun =mydist,col=bluered(256),
-          margins=c(6,12),srtCol=90,ColSideColors=fcol,key.title="Color key",key.xlab="standardized log-concentration")
-
-legend("topright", legend = c("MetS", "Non-MetS"),fill=c("firebrick","forestgreen"),border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
-
-#
-# Data - BMI --------------------
-con <- filter(dat1,provnr==1)%>%
-          dplyr::select(bmi3,one_of(var)) %>%
-          dplyr::select(-one_of(c(manyna1)))
-con$bmi3 <- relevel(con$bmi3,ref="1")
-con[,-1] <- scale(con[,-1])
-heat <- as.matrix(con[,-c(1)])
-heat <- t(heat)
-
-#col legend
-b <- brewer.pal(4,"Blues")
-fcol <- ifelse(con$bmi3==1,b[1],ifelse(con$bmi3==2,b[2],ifelse(con$bmi3==3,b[3],b[4])))
-
-# distance/cluster functions
-mydist=function(c) {dist(c,method="euclidian")}
-myclust=function(c) {hclust(c,method="average")}
-
-# Plot Heatmap -----------------
-heatmap.2(heat,
-          dendrogram = "both",
-          trace="none",
-          hclustfun=myclust,
-          distfun =mydist,col=bluered(256),
-          margins=c(6,12),srtCol=90,ColSideColors=fcol,key.title="Color key",key.xlab="standardized log-concentration")
-
-legend("topright", legend = c("<20", "20-25","25-30",">30"),fill=c("dodgerblue1","dodgerblue2","dodgerblue3","dodgerblue4"),border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
-
-# Data - Case control --------------------
-con <- filter(dat1,provnr==1)%>%
-          dplyr::select(casecontrol,one_of(var)) %>%
-          dplyr::select(-one_of(c(manyna1)))
-con[,-1] <- scale(con[,-1])
-heat <- as.matrix(con[,-c(1)])
-heat <- t(heat)
-
-#col legend
-fcol <- ifelse(con$casecontrol==1,"firebrick","forestgreen")
-
-# distance/cluster functions
-mydist=function(c) {dist(c,method="euclidian")}
-myclust=function(c) {hclust(c,method="average")}
-
-# Plot Heatmap -----------------
-heatmap.2(heat,
-          dendrogram = "both",
-          trace="none",
-          hclustfun=myclust,
-          distfun =mydist,col=bluered(256),
-          margins=c(6,12),srtCol=90,ColSideColors=fcol,key.title="Color key",key.xlab="standardized log-concentration")
-
-legend("topright", legend = c("Case", "Control"),fill=c("firebrick","forestgreen"),border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
-
+legend("topright", title = " ", 
+       legend = c("Sample 1","Sample 2"," ","Age <40","Age 40-50","Age 50-60", "Age >60", " ", 
+                  "Male", "Female", " ", "Positive", "Negative"," ","Missing"),
+       fill= c("#F8766D", "#00BA38","white","cyan","dodgerblue1","dodgerblue4","purple","white", "darkorange","brown","white","black","gray95","white","gray"),
+       border=FALSE, bty="n", y.intersp = 0.7, cex=0.7)
 
 ```
+
 
 
 
