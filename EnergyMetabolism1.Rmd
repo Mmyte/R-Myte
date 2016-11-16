@@ -160,6 +160,11 @@ tab(crc$kvalreg,crc$measurement)
 # Folat: ------------
 # Björns MSI/BRAF fil - MONICA saknar diagnosdatum
 bg <- read.csv("~/Documents/DATA-filer/MSI BRAF.csv", sep=";", dec=",",na.strings=c(""," ","NA"))
+# "Of the subjects in our present study, 98% had a low ratio of methionine sulfoxide to methionine (less than 10%
+# of total plasma concentrations of methionine)""
+# set this individual to Filter_folate == 2
+#bg[bg$idnr==4385,"fall"] <- 1
+bg[bg$idnr==4385,"Filter_folate"] <- 2
 bg <- filter(bg,fall==1) %>% dplyr::select(
                                            idnr,pat_code,Filter_folate, pyear, Age, delproj_num, PAD, dia_age2, 
                                            KRAS, BRAF, MSI, Cimp, diadat2, langd, vikt, Lokal_3:M_TNM, Stadium, 
@@ -452,7 +457,6 @@ crc[names(na.row[na.row>0.5]),]
 
 #Select and filter crc data
 crc <- filter(crc,id!=crc[names(na.row[na.row>0.5]),"id"])
-
 
 
 # First measurement data: 
