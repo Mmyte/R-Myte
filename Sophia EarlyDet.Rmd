@@ -483,19 +483,18 @@ anova(models1$IL_8,test="Chisq")
 dat.lme <- dat1
 
 # Physical activity vairabel
-#dat.lme["phys"] <- dat.lme$pa_index
 dat.lme["phys"] <- dat.lme$g6
 dat.lme$bmi3 <- relevel(dat.lme$bmi3,ref="2") 
 
-dat.11 <- dplyr::select(dat.lme,one_of(var))
-
 # Variables with many missing: Remove with over 50% missing
+dat.11 <- dplyr::select(dat.lme,one_of(var))
 na1 <- apply(dat.11,2,function(x) sum(is.na(x))/length(x))
 plot(na1);abline(h=0.5)
 na1[na1>=0.5]
 manyna1 <- names(na1[na1>=0.5])
 # Remove them: (only important if dat1 is used)
-dat <- dplyr::select(dat.11,-one_of(c(manyna1)))
+# Remove TRAIL because it is the same as TNFSF10
+dat <- dplyr::select(dat.11,-one_of(c(manyna1)),-TRAIL)
 var1 <- names(dat)
 alpha <- 0.05/length(var1)
 
@@ -523,19 +522,39 @@ colnames(coef.mets1) <- colnames(sd.mets1) <- c("MetS_score","MetS_groups",
                           "BMI_groups","Triglycerices_groups","Hypertension","Glucose_groups","Cholesterol_groups")
 # rownames
 rownames(mod1) <- rownames(coef1)<- rownames(sd1) <- rownames(mod.mets1) <- rownames(coef.mets1)  <- rownames(sd.mets1) <- var1 
+# residuals:
+res.proteins <- dat.lme[,var1]
 # intraclass correlations:
 icc <- numeric(length(var1))
 names(icc) <- var1
+icc.lifestyle <- numeric(length(var1))
+names(icc.lifestyle) <- var1
 icc.mets <- numeric(length(var1))
 names(icc.mets) <- var1
-# residuals:
-res.proteins <- dat.lme[,var1]
+# Rsq conditional and marginal
+r2 <- data.frame(var=var1,r2m=numeric(length(var1)),r2c=numeric(length(var1)),
+                 r2m.mets=numeric(length(var1)),r2c.mets=numeric(length(var1)))
+#
 # Main loop:
+#
 j=0
 for(i in var1){
   j=j+1
   cat(length(var1)-j," ")
   dat.lme["var"] <- dat.lme[,i]
+  #Emply model
+  g <- lme(var~casecontrol+age+gender+phys+smoke, 
+            random =list(~1|person),
+            na.action=na.exclude, method="ML",
+            data=dat.lme)
+  #icc empty
+    varests <- as.numeric(VarCorr(g)[c(1,2)]) 
+    icc[j] <- varests[1]/sum(varests)
+  # Rsq empty:
+    g <- lme(var~casecontrol+age+gender+phys+smoke, random =list(~1|person),  na.action=na.omit, method="ML",  data=dat.lme)
+    r <-  r.squaredGLMM(g)
+    r2[j,2] <- r[1]
+    r2[j,3] <- r[2]
   # MODELs lifestyle
         g <- lme(var~casecontrol+age+gender+langd+vikt+phys+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
             random =list(~1|person),
@@ -551,7 +570,7 @@ for(i in var1){
     sd1[j,] <- s$tTable[-1,2]
     # Intercept : between-subjects variace, residual: within subject variance
     varests <- as.numeric(VarCorr(g)[c(1,2)]) 
-    icc[j] <- varests[1]/sum(varests)
+    icc.lifestyle[j] <- varests[1]/sum(varests)
  # MODELs MetS
     g1 <- lme(var~metsz+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
@@ -571,7 +590,7 @@ for(i in var1){
     mod.mets1[j,2] <- anova(g2)$`p-value`[2]
     mod.mets1[j,3:7] <- anova(g3)$`p-value`[2:6]
     mod.mets1[j,8:12] <- anova(g4)$`p-value`[2:6]
-    
+
     # Coefficients
     coef.mets1[j,1] <- summary(g1)$tTable[2,1]
     coef.mets1[j,2] <- summary(g2)$tTable[2,1]
@@ -583,8 +602,16 @@ for(i in var1){
     sd.mets1[j,2] <- summary(g2)$tTable[2,2]
     sd.mets1[j,3:7] <- summary(g3)$tTable[2:6,2]
     sd.mets1[j,8:12] <- summary(g4)$tTable[2:6,2]
-
+    #Rsq mets
+    g1 <- lme(var~metsz+casecontrol+age+gender+phys+smoke,
+              random = ~1|person, na.action=na.omit,method="ML",data=dat.lme)
+    r <-  r.squaredGLMM(g1)
+    r2[j,4] <- r[1]
+    r2[j,5] <- r[2]
 }
+
+
+
 
 ```
 
@@ -611,45 +638,52 @@ mets.sign
 # adj p
 mod.bh0 <- apply(mod1,2,p.adjust,method="bonferroni")
 mod.bh1 <- apply(mod.mets1,2,p.adjust,method="bonferroni")
-sop <- data.frame(padj=mod.bh0[,2],age=coef1[,2],agesd=sd1[,2],
+sop <- data.frame(r2,
+                  padj=mod.bh0[,2],age=coef1[,2],agesd=sd1[,2],
                   padj=mod.bh0[,3],sex=coef1[,3],sexsd=sd1[,3],
                   padj=mod.bh0[,4],height=coef1[,4],heightsd=sd1[,4],
                   padj=mod.bh0[,5],weight=coef1[,5],weightsd=sd1[,5],
-                  padj=mod.bh0[,7],chol=coef1[,7],cholsd=sd1[,7],
-                  padj=mod.bh0[,8],trig=coef1[,8],cholsd=sd1[,8],
-                  padj=mod.bh0[11],sbt=coef1[,11],sbtsd=sd1[,11],
-                  padj=mod.bh0[,12],dbt=coef1[,12],dbtsd=sd1[,12],
-                  padj=mod.bh1[,5],HT=coef.mets1[,7],HTsd=sd.mets1[,7],
-                  padj=mod.bh1[,6],HTmed=coef.mets1[,8],HTmedsd=sd.mets1[,8],
-                  padj=mod.bh1[,1],BMI20=coef.mets1[,1],BMI20sd=sd.mets1[,1],BMI2530=coef.mets1[,2],BMI2530sd=sd.mets1[,2],BMI30=coef.mets1[,3],BMI30sd=sd.mets1[,3],
-                  padj=mod.bh1[,2],BMIcont=coef.mets1[,4],BMIcontsd=sd.mets1[,4],
-                  padj=mod.bh1[,3],Mets=coef.mets1[,5],Metssd=sd.mets1[,5],
-                  padj=mod.bh1[,4],Metscont=coef.mets1[,6],Metscontsd=sd.mets1[,6],
-                  padj=mod.bh0[,6],phys=coef1[,6],physsd=sd1[,6])
-sop["var"] <- rownames(sop)
+                  padj=mod.bh0[,6],phys=coef1[,6],physsd=sd1[,6],
+
+                  mod.bh1[,1],coef.mets1[,1],sd.mets1[,1],
+                  mod.bh1[,2],coef.mets1[,2],sd.mets1[,2],
+                  mod.bh1[,3],coef.mets1[,3],sd.mets1[,3],
+                  mod.bh1[,4],coef.mets1[,4],sd.mets1[,4],
+                  mod.bh1[,5],coef.mets1[,5],sd.mets1[,5],
+                  mod.bh1[,6],coef.mets1[,6],sd.mets1[,6],
+                  mod.bh1[,7],coef.mets1[,7],sd.mets1[,7],
+                  
+                  mod.bh1[,8],coef.mets1[,8],sd.mets1[,8],
+                  mod.bh1[,9],coef.mets1[,9],sd.mets1[,9],
+                  mod.bh1[,10],coef.mets1[,10],sd.mets1[,10],
+                  mod.bh1[,11],coef.mets1[,11],sd.mets1[,11],
+                  mod.bh1[,12],coef.mets1[,12],sd.mets1[,12])
+names(sop) <- c(names(r2),rep(c("padj","coef","sd"),17))                
+
 sop <- sop[order(sop$var),]
 # Export estimates to excel
 #write.xlsx(rbind(p[p[,2]<0.05,],pd[pd[,2]<0.05,]), file ="hej.xlsx",sheetName = "TestSheet", row.names = T)
 #write.xlsx(cbind(p[nn,],pd[nn,]), file ="hej.xlsx",sheetName = "TestSheet", row.names = T)
-write.xlsx(sop, file ="sophia4.xlsx",sheetName = "TestSheet", row.names = T)
+write.xlsx(sop, file ="sophia.xlsx",sheetName = "TestSheet", row.names = T)
 
 ```
 
 
 ### ICC
+ICC = proportion of total variance that is "between groups." 
+
 ```{r plot ICC}
 #Plot ICCs
-gdata <- data.frame(var1=var1,icc=icc)
+gdata <- data.frame(var1=var1,icc=icc) 
 ggplot(gdata,aes(x=reorder(var1,icc),y=icc)) +
-  geom_bar(stat="identity",width=.15)+
+  geom_bar(stat="identity",width=.15) +
   geom_point(size=1)+
-  coord_flip() + 
-  theme_bw()
+  coord_flip() 
 ```
 
 ### Proteins with low and high icc?
 ICC = proportion of total variance that is "between groups." 
-Proteins with low ICCs, "more black", that is higher variation within indiviuals between the two samples. 
+Proteins with low ICCs, "more black", that is higher variation within indiviuals, between the two samples. 
 Proteins with high ICCs, "less black", more variation between individuals. Most individuals have little diff between two samples.
 
 ```{r icc plot variables with extreme ICC}
@@ -670,6 +704,102 @@ dplyr::select(dat.lme,person,provnr,one_of(icclow)) %>% melt(id=c("person","prov
   facet_wrap(~variable,scales="free") + theme_bw() + theme(axis.text.x=element_blank(),axis.ticks.x=element_blank())
 
 ```
+
+
+
+###Plot R2
+```{r r squared plot}
+r2 <- mutate(r2,icc=icc, icc4=cut(icc, breaks=c(0,0.25,0.5,0.75,1)), r2mchange=r2m.mets-r2m,
+             sign=ifelse(r2$var %in% mets.sign$var,1,0), 
+             r2m.mets3=cut(r2m.mets,breaks=c(0,0.1,0.2,0.3),labels=c("<10%","10-20%","20-30%")))
+levels(r2$var) <- gsub("_","-",levels(r2$var))
+
+# used plot
+ggplot(r2, aes(x=r2mchange, y=r2c.mets, color=r2m.mets3, label=var)) + geom_point(aes(size=abs(r2mchange)),alpha=0.8) + 
+  geom_text(aes(size=abs(r2mchange)), nudge_x = 0.001,nudge_y = -0.005,vjust="inward",hjust="inward") + 
+  geom_text(data=r2[r2$sign==1,], aes(x=r2mchange, y=r2c.mets, color=r2m.mets3, label=var, size=abs(r2mchange)), 
+            nudge_x = 0.001,nudge_y = -0.005,vjust="inward",hjust="inward",fontface="bold") + 
+  scale_size(range = c(1,7), guide = FALSE) +
+  scale_color_discrete(name = "Variance explained\n by fixed factors") +
+  xlab("Change in variance explained\n by including MetS") + ylab("Variance explained by fixed + random factors")
+
+#ggplot(r2, aes(x=r2m.mets, y=r2c.mets, color=icc4)) + 
+#  geom_point(aes(size=abs(r2mchange))) + 
+#  scale_size(range = c(1,8), guide = guide_legend(title="Change in variance explained\n by including MetS")) +
+#  geom_text(data=r2[r2$sign==1,], aes(x=r2m.mets, y=r2c.mets, color=icc4, label=var), 
+#            hjust = 0, nudge_x = 0.005,nudge_y=-0.01) + 
+#  xlab("Variance explained by fixed factors") + ylab("Variance explained by fixed + random factors")
+
+```
+
+
+###Volcano plot
+```{r volcano plot}
+# p-threshold
+pthreshold = -log10(0.05/length(icc.mets))
+
+#MetS
+volc <- data.frame(var=gsub("_","-",names(icc.mets)),icc=icc.mets,coef=coef.mets1[,1],p=mod.mets1[,1]) %>% 
+  mutate(plog=-log10(p), icc4=cut(icc, breaks=c(0,0.25,0.5,0.75,1)))
+
+ggplot(volc, aes(y=plog, x=coef, label=var, color=icc4)) + 
+  geom_point(aes(size=abs(coef))) + 
+  geom_text(aes(size=abs(coef)), hjust = 0, nudge_x = 0.002) + 
+  geom_hline(yintercept=pthreshold,lty=2) +
+  scale_size(range = c(1,6), guide = guide_legend(title=" ")) + 
+  #theme_bw() +
+  xlab("Coefficient MetS") + ylab("log10 P-value")
+
+#metS groups
+volc <- data.frame(var=gsub("_","-",names(icc.mets)),icc=icc.mets,coef=coef.mets1[,2],p=mod.mets1[,2]) %>% 
+  mutate(plog=-log10(p), icc4=cut(icc, breaks=c(0,0.25,0.5,0.75,1)))
+
+ggplot(volc, aes(y=plog, x=coef, label=var, color=icc4)) + 
+  geom_point(aes(size=abs(coef))) + 
+  geom_text(aes(size=abs(coef)), hjust = 0, nudge_x = 0.002) + 
+  geom_hline(yintercept=pthreshold,lty=2) +
+  scale_size(range = c(1,6), guide = guide_legend(title=" ")) + 
+  #theme_bw() +
+  xlab("Coefficient MetS (groups)") + ylab("log10 P-value")
+
+#BMI
+volc <- data.frame(var=gsub("_","-",names(icc.mets)),icc=icc.mets,coef=coef.mets1[,3],p=mod.mets1[,3]) %>% 
+  mutate(plog=-log10(p), icc4=cut(icc, breaks=c(0,0.25,0.5,0.75,1)))
+
+ggplot(volc, aes(y=plog, x=coef, label=var, color=icc4)) + 
+  geom_point(aes(size=abs(coef))) + 
+  geom_text(aes(size=abs(coef)), hjust = 0, nudge_x = 0.002) + 
+  geom_hline(yintercept=pthreshold,lty=2) +
+  scale_size(range = c(1,6), guide = guide_legend(title=" ")) + 
+  #theme_bw() +
+  xlab("Coefficient BMI") + ylab("log10 P-value")
+
+#All variables
+volc <- data.frame(var=gsub("_","-",names(icc.mets)),icc=icc.mets,metsc=coef.mets1[,1],metsp=mod.mets1[,1],
+                   bmic=coef.mets1[,3],bmip=mod.mets1[,3],
+                   trigc=coef.mets1[,4],trigp=mod.mets1[,4],
+                   bpc=coef.mets1[,5],bpp=mod.mets1[,5],
+                   glucc=coef.mets1[,6],glucp=mod.mets1[,6],
+                   cholc=coef.mets1[,7],colp=mod.mets1[,7]) %>% 
+         mutate(icc4=cut(icc, breaks=c(0,0.25,0.5,0.75,1)))
+
+volc <- melt(volc, id=c("var","icc","icc4","metsc","bmic","trigc","bpc","glucc","cholc"))
+volc <- melt(volc, id=c("var","icc","icc4","variable","value")) 
+names(volc) <- c("var","icc","icc4","variable.p","value.p","variable.c","value.c")
+# bonferroni threhsold
+pthreshold = -log10(0.05/length(icc.mets))
+
+ggplot(volc, aes(y=-log10(value.p), x=value.c, label=var, color=icc4)) + 
+  geom_point(aes(size=abs(value.c))) + 
+  geom_text(aes(size=abs(value.c)), hjust = 0, nudge_x = 0.002) + 
+  geom_hline(yintercept=pthreshold,lty=2) +
+  scale_size(range = c(1,6), guide = guide_legend(title=" ")) + 
+  #theme_bw() +
+  xlab("Coefficient") + ylab("log10 P-value") + facet_wrap(~variable.p)
+
+```
+
+
 
 ### Plot significant variabls in mixed models:
 
@@ -980,6 +1110,112 @@ summary(pred2)
 ```
 
 
+###Differences by differences analysis
+
+```{r difference lm models,echo=F}
+# Data fix 
+dat.lme <- dat1
+
+# Physical activity vairabel
+dat.lme["phys"] <- dat.lme$g6
+dat.lme$bmi3 <- relevel(dat.lme$bmi3,ref="2") 
+
+# Variables with many missing: Remove with over 50% missing
+dat.11 <- dplyr::select(dat.lme,one_of(var))
+na1 <- apply(dat.11,2,function(x) sum(is.na(x))/length(x))
+plot(na1);abline(h=0.5)
+na1[na1>=0.5]
+manyna1 <- names(na1[na1>=0.5])
+
+# Remove them: (only important if dat1 is used)
+# Remove TRAIL because it is the same as TNFSF10
+dat <- dplyr::select(dat.11,-one_of(c(manyna1)),-TRAIL) 
+var1 <- names(dat)
+alpha <- 0.05/length(var1)
+
+# some dont have repeated samples:
+id2 <- names(table(dat1$person)[table(dat1$person)<2])
+dat.lme <- dplyr::filter(dat.lme, !person %in% id2)
+
+# Get sample 1 and 2 and merge columns:
+dat.1 <- filter(dat.lme,provnr==1);dat.1 <- dat.1[order(dat.1$person),]
+dat.2 <- filter(dat.lme,provnr==2);dat.2 <- dat.2[order(dat.2$person),]
+sum(dat.1$person==dat.2$person)
+dat.rep <- merge(x=dat.1, y=dat.2, by="person")
+dim(dat.rep)
+
+#Create diff variables:
+dat.rep <- dat.rep %>% mutate(mets.diff=metsz.y-metsz.x, 
+                              phys.diff=phys.y-phys.x, weight.diff=vikt.y-vikt.x, bmi.diff=bmi.y-bmi.x, stg.diff=stg.y-stg.x,
+                              sbt.diff=sbt.y-sbt.x, dbt.diff=dbt.y-dbt.x,
+                              blods0.diff=blods0.y-blods0.x, blods2.diff=blods2.y-blods2.x,  skol.diff=skol.y-skol.x,
+                              bmiz.diff=bmiz.y-bmiz.x, stgz.diff=stgz.y-stgz.x, midbpz.diff=midbpz.y-midbpz.x,
+                              blods0z.diff=blods0z.y-blods0z.x, skolz.diff=skolz.y-skolz.x)
+dat.rep %>% dplyr::select(mets.diff:skolz.diff) %>% melt() %>% ggplot(aes(x=value)) + geom_histogram() + 
+  facet_wrap(~variable, scales="free")
+#
+# Model fitting 
+# Matrix to store estimate in:
+mod1.d <- matrix(nrow=ncol(dat),ncol=length(cov))
+coef1.d <- sd1.d <- matrix(nrow=ncol(dat),ncol=length(cov)+2)
+mod.mets1.d <- matrix(nrow=ncol(dat),ncol=6)
+coef.mets1.d <- sd.mets1.d <- matrix(nrow=ncol(dat), ncol=6) 
+# colnames
+colnames(mod1.d) <- c("Case","Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Snus","Medications")
+colnames(coef1.d) <-  colnames(sd1.d) <- c("Case","Age","Sex","Height","Weight","Physical.activity","Cholesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Ex.smoking","Snus","Ex.snus","Medications")
+colnames(mod.mets1.d) <-  c("MetS_score",
+                            "BMI_score","Triglycerices_score","MidBP_score","P.glucose_score","Cholesterol_score")
+colnames(coef.mets1.d) <- colnames(sd.mets1.d) <- c("MetS_score",
+                          "BMI_score","Triglycerices_score","MidBP_score","P.glucose_score","Cholesterol_score")
+# rownames
+rownames(mod1.d) <- rownames(coef1.d)<- rownames(sd1.d) <- rownames(mod.mets1.d) <- rownames(coef.mets1.d)  <- rownames(sd.mets1.d) <- var1 
+# residuals:
+res.proteins.d <- dat.rep[,var1]
+# Rsq conditional and marginal
+r2.d <- data.frame(var=var1, r2=numeric(length(var1)), r2.mets=numeric(length(var1)))
+
+j=0
+for(i in var1){
+  j=j+1
+  cat(length(var1)-j," ")
+  dat.rep["var"] <- dat.rep[,paste(i,"y",sep=".")]-dat.rep[,paste(i,"x",sep=".")]
+  # MODELs lifestyle
+    g <- lm(var~casecontrol.x+age.x+gender.x+langd.x+weight.diff+phys.diff+skol.diff+stg.diff+blods0.diff+blods2.diff+sbt.diff+dbt.diff
+            +smoke.x+snus.x+med.x,
+            na.action=na.exclude,
+            data=dat.lme)
+    # p-values
+    a <-   anova(g)
+    s <- summary(g)
+    mod1[j,] <- a$`p-value`[-1]
+    # Coefficients
+    coef1[j,] <- s$tTable[-1,1]
+    # SD
+    sd1[j,] <- s$tTable[-1,2]
+ # MODELs MetS
+    g1 <- lm(var~metsz.diff+casecontrol+age.x+gender.x+phys.diff+smoke.x,
+               na.action=na.exclude,data=dat.rep)
+    g3 <- lm(var~bmiz.diff+stgz.diff+midbpz.diff+blods0z.diff+skolz.diff+casecontrol.x+age.x+gender.x+phys.diff+smoke.x,
+               na.action=na.exclude ,data=dat.rep)
+    #Resiudals:
+    res.proteins[,i] <- residuals(g1, type="pearson")
+    # P-values
+    mod.mets1[j,1] <- anova(g1)$`p-value`[2]
+    mod.mets1[j,2:6] <- anova(g3)$`p-value`[2:6]
+    
+    # Coefficients
+    coef.mets1[j,1] <- summary(g1)$tTable[2,1]
+    coef.mets1[j,2:6] <- summary(g3)$tTable[2:6,1]
+
+    # sd
+    sd.mets1[j,1] <- summary(g1)$tTable[2,2]
+    sd.mets1[j,2:6] <- summary(g3)$tTable[2:6,2]
+   
+
+}
+
+```
+
 
 
 ##Correlations between markers using adjusted and transformed data
@@ -1006,8 +1242,8 @@ heatmap.2(heat,dendrogram = "row",
 Circos correlations: ALL proteins, plot those with R2 > 0.5. Color those with R2 > 0.8
 PROV 1 o 2
 ```{r circos correlations ,echo=F}
-#Data fix --------------------
-rdata1 <-  filter(dat.lme, provnr==1|2) %>% dplyr::select(one_of(var1),-TRAIL) 
+#Data fix 
+rdata1 <-  res.proteins 
 names(rdata1) <- gsub('_', '-', names(rdata1))
 
 # Correlations prov 1
@@ -1037,7 +1273,7 @@ names(grid.col)=uniq
 
 #Highlight cols
 col <-  grid.col[match(cor22[,1],names(grid.col))]
-col[cor22[3] < 0.80] = "gray90"
+col[cor22[3] < 0.77] = "gray90"
 
 # Scale correlations
 #cor22[,3] <- (1/(1-cor22[,3]))
@@ -1107,18 +1343,18 @@ pairs(rdata1[,c("SCAMP3", "TXLNA","STAMPB","SIRT2","AXIN1", "LYN", "ABL1","LAP.T
 Circos correlations - signiricant in metS:
 
 ```{r circos corelations significants METS,echo=F}
-#Data fix --------------------
-# Significant BMI and Mets
-m1 <- apply(mod.mets1[,-c(6)],2,p.adjust,method="bonferroni")
-m2 <- apply(mod1[,c("Colesterol","Triglycerides","P.glucose")],2,p.adjust,method="bonferroni")
-mm <- cbind(m1,m2)
-mm <- data.frame(var=rownames(mm),ifelse(mm<=0.05,1,0)) 
-mets.sign <- mutate(mm,sum.sign=rowSums(mm[,2:ncol(mm)])) %>% filter(sum.sign>0) 
+#Data fix 
+#significants in metS
+mets.bh1 <- apply(mod.mets1,2,p.adjust,method="bonferroni")
+mets.bh2 <- data.frame(var=rownames(mets.bh1),ifelse(mets.bh1<=0.05,1,0)) 
+mets.sign <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,2:7])) %>% filter(sum.sign>0) 
 mets.sign <- mets.sign[order(mets.sign$var),]
-mets.sign 
+mets.coef <- data.frame(var=rownames(coef.mets1),coef.mets1)
+mets.sign
 
 # TRAIL is the same as TNFSF10 so remove
-rdata1 <-  filter(dat.lme, provnr==1|2) %>% dplyr::select(one_of(as.character(mets.sign$var)),-TRAIL)
+choose <- as.character(mets.sign$var)
+rdata1 <- res.proteins %>% dplyr::select(one_of(choose))
 names(rdata1) <- gsub('_', '-', names(rdata1))
 
 # Correlations prov 1
@@ -1134,7 +1370,6 @@ sum(cor11[,3]<0 & abs(cor11[,3])>0.5)
 cor11[,3] <- cor11[,3]^2
 # Remove same correlations 
 cor11 <- cor11[!duplicated(cor11[,3]),]
-# Only those above 0.5
 cor22 <- cor11
 
 # Circos plot  --------------------
@@ -1150,8 +1385,8 @@ col[cor22[3] < 0.2] = "gray90"
 
 # Scale correlations
 #cor22[,3] <- (1/(1-cor22[,3]))
-cor22[,3] <- scale(cor22[,3])
-
+#cor22[,3] <- scale(cor22[,3])
+cor22[,3] <- cor22[,3]*100
 
 # Plot
 chordDiagram(cor22, 
@@ -1319,26 +1554,27 @@ Circos - MetS and BMI
 par(mar=c(5.1,4.1,4.1,2.1))
 
 #Data fix
-# Significant BMI and Mets
-m1 <- apply(mod.mets1[,-c(6)],2,p.adjust,method="bonferroni")
-m2 <- apply(mod1[,c("Colesterol","Triglycerides","P.glucose")],2,p.adjust,method="bonferroni")
-mm <- cbind(m1,m2)
-mm <- data.frame(var=rownames(mm),ifelse(mm<=0.05,1,0)) 
-mets.sign <- mutate(mm,sum.sign=rowSums(mm[,2:ncol(mm)])) %>% filter(sum.sign>0) 
+# Significant MetS
+mets.bh1 <- apply(mod.mets1,2,p.adjust,method="bonferroni")
+mets.bh2 <- data.frame(var=rownames(mets.bh1),ifelse(mets.bh1<=0.05,1,0)) 
+mets.sign <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,2:7])) %>% filter(sum.sign>0) 
 mets.sign <- mets.sign[order(mets.sign$var),]
-mets.sign 
+mets.coef <- data.frame(var=rownames(coef.mets1),coef.mets1)
+mets.sign
 
-# Data frame:
-lf1 <- filter(mets.sign,var!="TRAIL") %>% dplyr::select(-sum.sign) %>% melt(id="var") %>% 
-        mutate(variable=factor(variable, labels=c("BMI (groups)","BMI (continuous)","MetS (groups)", "MetS (score)", "Hypertension","Cholesterol","Triglycerides","P-glucose"))) #%>% filter(variable!="HT",variable!="HT medication")
+# SCore variables:
+# Data frame: 
+lf1 <-  dplyr::select(mets.sign, var, MetS_score, BMI_score:Cholesterol_score,Hypertension) %>% melt(id="var") %>% 
+        mutate(variable=factor(variable, labels=c("MetS","BMI","Triglycerices", "Mid-BP", "P-glucose","Cholesterol","Hypertension")))
 lf1 <- lf1[lf1$value>0,]
 head(lf1);nrow(lf1)
-levels(lf1$var) <- gsub('_', '-', levels(lf1$var))
+#levels(lf1$var) <- gsub('_', '-', levels(lf1$var))
 lf1$var <- as.character(lf1$var)
 #
-#Add empty labels for Colesterol-DBP
+#Add empty labels for MiD-BP, P-Glucose and Cholesterol
+lf1 <- rbind(lf1,c(" ",levels(lf1$variable)[4],0.5))
+lf1 <- rbind(lf1,c(" ",levels(lf1$variable)[5],0.5))
 lf1 <- rbind(lf1,c(" ",levels(lf1$variable)[6],0.5))
-lf1 <- rbind(lf1,c(" ",levels(lf1$variable)[8],0.5))
 #
 lf1$variable <- as.character(lf1$variable)
 lf1$value <- as.numeric(lf1$value)
@@ -1347,14 +1583,14 @@ lf1$value <- as.numeric(lf1$value)
 # Start degree so that lifestyle are at the right
 # gap degree to seperate lifestyle from proteins
 circos.par(start.degree=277,
-           gap.degree=c(rep(2, length(unique(lf1[[1]]))-1), 12, rep(2, length(unique(lf1[[2]]))-1), 12))
+           gap.degree=c(rep(2, length(unique(lf1[[1]]))-1), 15, rep(2, length(unique(lf1[[2]]))-1), 15))
 
 # Set grid colors
 uniq <- union(lf1[[1]], lf1[[2]])
 col3 <- colorRampPalette(c("dodgerblue", "forestgreen", "darkgoldenrod1", "red", "blue"))
 grid.col=col3(length(uniq))
 names(grid.col)=uniq
-grid.col[12] <- "white"
+grid.col[11] <- "white"
 
 # Plot
 chordDiagram(lf1, 
@@ -1374,7 +1610,7 @@ circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
 # Clear graphics
 circos.clear() 
 
-
+# Group variables:
 
 ```
 
