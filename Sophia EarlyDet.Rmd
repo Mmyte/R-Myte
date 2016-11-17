@@ -637,9 +637,10 @@ tab(drop.levels(outliers$variable))
 # plotta de med över 3 i pearson residual visas
 res.proteins %>% dplyr::select(one_of(as.character(outliers$variable))) %>% 
   mutate(index=seq(1,nrow(res.proteins)), id=as.character(dat.lme$id)) %>% 
-  melt(id=c("index","id")) %>% 
-  ggplot(aes(x=index,y=value)) + geom_point() + 
-  #geom_text(data=gdat[is.na(gdat$value)==F&abs(gdat$value)>3,],aes(x=index, y=value, label=id),size=2,vjust="inward",hjust="inward") + 
+  melt(id=c("index","id")) %>% mutate(out=as.factor(ifelse(abs(value)>3,"outlier","normal"))) %>% 
+  ggplot(aes(x=index,y=value,col=out)) +
+  geom_point(size=1) + 
+  scale_colour_manual(values=c("black","red")) +
   facet_wrap(~variable,scales="free") 
 
 ```
@@ -1174,7 +1175,7 @@ dat.rep <- merge(x=dat.1, y=dat.2, by="person")
 dim(dat.rep)
 
 #Set outliers to NA (>3 in standardized pearson residual in the analyses)
-#load("/Users/Myte/Dropbox/Documents/JOBB ONKO/Sophia Early Detection/residual analysis/outliersd.RData")
+load("/Users/Myte/Dropbox/Documents/JOBB ONKO/Sophia Early Detection/residual analysis/outliersd.RData")
 for(i in 1:nrow(outliers.d)){
   dat.rep[dat.rep$id==outliers.d[i,"id"], as.character(outliers.d[i,"variable"])] <- NA
 }
@@ -1267,16 +1268,17 @@ res.proteins.d %>% melt() %>% ggplot(aes(x=value)) + geom_histogram() + facet_wr
 
 #Variables with potential outliers found from inspecting histograms::
 # alla med >3 i pearson residual:
-gdat <- res.proteins.d %>%mutate(index=seq(1,nrow(res.proteins.d)), id=as.character(dat.rep$id)) %>% melt(id=c("index","id")) 
+gdat <- res.proteins.d %>% mutate(index=seq(1,nrow(res.proteins.d)), id=as.character(dat.rep$id.x)) %>% melt(id=c("index","id")) 
 outliers.d <- gdat[is.na(gdat$value)==F&abs(gdat$value)>3,]
 tab(drop.levels(outliers.d$variable))
 
 # plotta de med över 3 i pearson residual visas
-res.proteins.d %>% dplyr::select(one_of(as.character(outliers$variable))) %>% 
-  mutate(index=seq(1,nrow(res.proteins)), id=as.character(dat.lme$id)) %>% 
-  melt(id=c("index","id")) %>% 
-  ggplot(aes(x=index,y=value)) + geom_point() + 
-  #geom_text(data=gdat[is.na(gdat$value)==F&abs(gdat$value)>3,],aes(x=index, y=value, label=id),size=2,vjust="inward",hjust="inward") + 
+res.proteins.d %>% dplyr::select(one_of(as.character(outliers.d$variable))) %>% 
+  mutate(index=seq(1,nrow(res.proteins.d)), id=as.character(dat.rep$id.x)) %>% 
+  melt(id=c("index","id")) %>% mutate(out=as.factor(ifelse(abs(value)>3,"outlier","normal"))) %>% 
+  ggplot(aes(x=index,y=value,col=out)) +
+  geom_point(size=1) + 
+  scale_colour_manual(values=c("black","red")) +
   facet_wrap(~variable,scales="free") 
 
 ```
@@ -1666,7 +1668,7 @@ circos.clear()
 ## Methylation array data
 ```{r methylation data import}
 # Load corrected beta values
-load("/Users/Myte/Documents/DATA-filer/Sophia early detection/methylation/enmix_beta_dataframe.RData")
+load("/Users/Myte/Documents/DATA-filer/Sophiaearlydetection/methylation/enmix_beta_dataframe.RData")
 
 # Load list of CpGs close to or within MetS significant proteins:
 mets.cpg <- read.csv("~/Documents/DATA-filer/Sophia early detection/methylation/MetS CpGs.csv", stringsAsFactors=FALSE)
