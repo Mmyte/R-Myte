@@ -483,6 +483,7 @@ Mixed models loop:
 
 # Data fix 
 dat.lme <- dat1
+var <- dplyr::select(dat1, IL_8:FR_alpha) %>% names()
 
 # Physical activity vairabel
 dat.lme["phys"] <- dat.lme$g6
@@ -635,7 +636,7 @@ for(i in var1){
     r2[j,7] <- r[2]
 }
 
-
+res.proteins["id"] <- dat.lme$id
 
 ```
 
@@ -686,36 +687,39 @@ write.xlsx(mets.sign, file ="mets sign.xlsx",sheetName = "TestSheet", row.names 
 
 
 # Skapa Sophias excel-fil:
+# Get names
+ProteinNames <- read.csv("~/Dropbox/Documents/JOBB ONKO/Sophia Early Detection/ProteinNames.csv", sep=";")
 # adj p
 mod.bh0 <- apply(mod1,2,p.adjust,method="bonferroni")
 mod.bh1 <- apply(mod.mets1,2,p.adjust,method="bonferroni")
-sop <- data.frame(r2,
+sop <- data.frame(r2, icc=icc.mets, 
                   padj=mod.bh0[,2],age=coef1[,2],agesd=sd1[,2],
                   padj=mod.bh0[,3],sex=coef1[,3],sexsd=sd1[,3],
                   padj=mod.bh0[,4],height=coef1[,4],heightsd=sd1[,4],
                   padj=mod.bh0[,5],weight=coef1[,5],weightsd=sd1[,5],
                   padj=mod.bh0[,6],phys=coef1[,6],physsd=sd1[,6],
 
-                  mod.bh1[,1],coef.mets1[,1],sd.mets1[,1],
-                  mod.bh1[,2],coef.mets1[,2],sd.mets1[,2],
-                  mod.bh1[,3],coef.mets1[,3],sd.mets1[,3],
-                  mod.bh1[,4],coef.mets1[,4],sd.mets1[,4],
-                  mod.bh1[,5],coef.mets1[,5],sd.mets1[,5],
-                  mod.bh1[,6],coef.mets1[,6],sd.mets1[,6],
-                  mod.bh1[,7],coef.mets1[,7],sd.mets1[,7],
+                  padj=mod.bh1[,1],MetS_score=coef.mets1[,1],sd=sd.mets1[,1],
+                  padj=mod.bh1[,2],MetS_groups=coef.mets1[,2],sd=sd.mets1[,2],
+                  padj=mod.bh1[,3],BMI_score=coef.mets1[,3],sd=sd.mets1[,3],
+                  padj=mod.bh1[,4],Triglycerices_score=coef.mets1[,4],sd=sd.mets1[,4],
+                  padj=mod.bh1[,5],MidBP_score=coef.mets1[,5],sd=sd.mets1[,5],
+                  padj=mod.bh1[,6],P.glucose_score=coef.mets1[,6],sd=sd.mets1[,6],
+                  padj=mod.bh1[,7],Cholesterol_score=coef.mets1[,7],sd=sd.mets1[,7],
                   
-                  mod.bh1[,8],coef.mets1[,8],sd.mets1[,8],
-                  mod.bh1[,9],coef.mets1[,9],sd.mets1[,9],
-                  mod.bh1[,10],coef.mets1[,10],sd.mets1[,10],
-                  mod.bh1[,11],coef.mets1[,11],sd.mets1[,11],
-                  mod.bh1[,12],coef.mets1[,12],sd.mets1[,12])
-names(sop) <- c(names(r2),rep(c("padj","coef","sd"),17))                
-
+                  padj=mod.bh1[,8],BMI_groups=coef.mets1[,8],sd=sd.mets1[,8],
+                  padj=mod.bh1[,9],Triglycerices_groups=coef.mets1[,9],sd=sd.mets1[,9],
+                  padj=mod.bh1[,10],Hypertension=coef.mets1[,10],sd=sd.mets1[,10],
+                  padj=mod.bh1[,11],P.glucose_groups=coef.mets1[,11],sd=sd.mets1[,11],
+                  padj=mod.bh1[,12],Cholesterol_groups=coef.mets1[,12],sd=sd.mets1[,12])
+#names(sop) <- c(names(r2),"icc",rep(c("padj","coef","sd"),17))             
 sop <- sop[order(sop$var),]
+sop2 <- merge(sop,ProteinNames,by="var",all.x=T)
+
 # Export estimates to excel
 #write.xlsx(rbind(p[p[,2]<0.05,],pd[pd[,2]<0.05,]), file ="hej.xlsx",sheetName = "TestSheet", row.names = T)
 #write.xlsx(cbind(p[nn,],pd[nn,]), file ="hej.xlsx",sheetName = "TestSheet", row.names = T)
-write.xlsx(sop, file ="sophia.xlsx",sheetName = "TestSheet", row.names = T)
+write.xlsx(sop2, file ="sophia.xlsx",sheetName = "TestSheet", row.names = T)
 
 ```
 
@@ -1779,6 +1783,7 @@ load("~/Documents/DATA-filer/Sophiaearlydetection/methylation/beta_with_celltype
 
 # Load list of CpGs close to or within MetS significant proteins:
 mets.cpg <- read.csv("~/Documents/DATA-filer/Sophiaearlydetection/methylation/MetS CpGs.csv", stringsAsFactors=FALSE)
+mets.cpg <- dplyr::rename(mets.cpg,var=IlmnID)
 
 # Get celltypes data
 #load("~/Documents/DATA-filer/Sophiaearlydetection/methylation/celltypes.RData")
@@ -1787,28 +1792,62 @@ mets.cpg <- read.csv("~/Documents/DATA-filer/Sophiaearlydetection/methylation/Me
 #save(beta1, file="beta_with_celltypes.RData")
 
 # get CpGs in significant proteins genes
-cpg1 <- mets.cpg$IlmnID
+cpg1 <- mets.cpg$var
 
 #merge with olink/phen data frame:
-beta1 <- dplyr::select(beta, id, Barcodesection, one_of(cpg1))
+beta1 <- dplyr::select(beta1, id, Barcodesection, CD8T, CD4T, NK , Bcell, Gran, Mono, one_of(cpg1))
+cpg1 <- cpg1[!(cpg1 %in% c("cg04199023", "cg10588688", "cg24421822", "cg25862752"))] # remove missing cpgs from list
+mets.cpg <- mets.cpg[!(mets.cpg$var %in% c("cg04199023", "cg10588688", "cg24421822", "cg25862752")),]
+
 sum(beta1$id %in% dat1$id)
-dat1.m <- merge(dat1, beta1, by="id")
+sum(beta1$id %in% phen$id)
+
+dat1cpg <- merge(phen, beta1, by="id")
+dat1cpg <- unite(dat1cpg,"person", caseset, casecontrol, remove=FALSE)
+
 
 ```
+
+Histograms:
+
+
+```{r histograms CpG,echo=F}
+dplyr::select(dat1cpg, one_of(cpg1[1:221])) %>% melt() %>%
+  ggplot(aes(x=value)) +
+  geom_histogram(alpha=.5, position="identity")+
+  facet_wrap(~variable,scales="free") + theme_bw() 
+
+dplyr::select(dat1cpg, one_of(cpg1[221:length(cpg1)])) %>% melt() %>%
+  ggplot(aes(x=value)) +
+  geom_histogram(alpha=.5, position="identity")+
+  facet_wrap(~variable,scales="free") + theme_bw() 
+
+
+```
+
+cell type distributions
+```{r, cell type proportions}
+
+dplyr::select(dat1cpg,  provnr, CD8T, CD4T, NK , Bcell, Gran, Mono) %>% melt(id="provnr") %>% 
+  ggplot(aes(x=value, color=as.factor(provnr))) + geom_density() + geom_rug() + facet_wrap(~variable,scales="free")
+
+```
+
 
 Heatmap of levels
 Rows are variables, columns are observations. Observations are sorted according to case. Gray squares indicate missing observations.
 
 ```{r 1 heatmap CpGs, fig.width=12, fig.height=8, message=FALSE, warnings=FALSE}
+var <- cpg1
 
 # Data fix  8*8 inch pic
-dat11 <- dplyr::select(dat1.m, provnr, casecontrol, person, one_of(cpg1))  %>% 
+dat11 <- dplyr::select(dat1cpg, provnr, casecontrol, person, one_of(var))  %>% 
           mutate(case=factor(casecontrol,labels=c("control","case")),
-                 case.provnr=interaction(case,provnr),cpnum=as.numeric(case.provnr)) %>% 
+                 case.provnr=interaction(case,provnr), cpnum=as.numeric(case.provnr)) %>% 
           unite(person_case_provnr,case.provnr, person, sep=" ",remove=F)
 
 # remove NAs
-con <- dplyr::select(dat11, one_of(cpg1),person_case_provnr,cpnum) %>% arrange(cpnum) %>% dplyr::select(-cpnum)
+con <- dplyr::select(dat11, one_of(var), person_case_provnr,cpnum) %>% arrange(cpnum) %>% dplyr::select(-cpnum)
 
 # Sort columns after amount of NA
 n <- apply(con[,var],2,function(x) sum(is.na(x)))
@@ -1820,7 +1859,6 @@ n <- names(n)
 df <- melt(con,id.vars="person_case_provnr")
 df$person_case_provnr <- factor(df$person_case_provnr,levels=as.character(con$person_case_provnr))
 df$variable <- factor(df$variable,levels=n)
-levels(df$variable) <- gsub("_","-",levels(df$variable))
 
 ggplot(df, aes(y = variable, x = person_case_provnr)) + 
    geom_tile(aes(fill = value), colour = "white") + 
@@ -1835,27 +1873,25 @@ ggplot(df, aes(y = variable, x = person_case_provnr)) +
 ##Cluster analysis:
 
 ```{r CpG standardized cluster analysis ,echo=F, fig.pos = "H",fig.width=8, fig.height=8}
+var <- cpg1
 
 # Data fix 8*8 inch pic
-# Remove many NAs
-na1 <- apply(dat1.m[,cpg1],2,function(x) sum(is.na(x))/length(x))
-plot(na1);abline(h=0.5)
-na1[na1>=0.15]
+# Remove many NAs ARE NONE! 
+na1 <- apply(dat1cpg[,var],2,function(x) sum(is.na(x))/length(x))na1[na1>=0.15]
 manyna1 <- names(na1[na1>=0.15])
 
 #
 # Data - provnr 
-corre <-  dplyr::select(dat1.m,provnr, gender, age4, bmi2, stg2, ht2, gluc2, mets2, one_of(var)) %>%
-        dplyr::select(-one_of(c(manyna1))) %>% 
+corre <-  dplyr::select(dat1cpg, provnr, gender, age4, bmi2, stg2, ht2, gluc2, mets2, one_of(var)) %>%
         mutate(bmi2=coalesce(as.integer(bmi2), 9999L), stg2=coalesce(as.integer(stg2), 9999L),
                ht2=coalesce(as.integer(ht2), 9999L), mets2=coalesce(as.integer(mets2), 9999L)) 
 
-var1 <- dplyr::select(corre, IL_8:FR_alpha) %>% names()
+var1 <- dplyr::select(corre, one_of(var)) %>% names()
 corre[,var1] <- scale(corre[,var1])
 #Remove NAs
 con <- na.omit(corre) 
 
-heat <- dplyr::select(con, IL_8:FR_alpha)
+heat <- dplyr::select(con, one_of(var))
 heat <- heat %>% as.matrix()
 heat <- t(heat)
 
@@ -1904,36 +1940,53 @@ legend("topright", title = " ",
 ```
 
 ##Associations CpG vs lifestyle
-Mixed models loop:
+
+Principle component regression
+```{r PCA regression}
+
+#PCA: 
+pca <- prcomp(dat1cpg[,cpg1], center = TRUE, scale. = TRUE) 
+summary(pca)
+plot(pca,type="l")
+fviz_pca_var(pca,col.circle="black")+theme_bw()+xlim(-1,1)+ylim(-1,1)
+
+pca1 <- data.frame(bmi3=dat1cpg[,"bmi3"],sex=dat1cpg$gender,age4=dat1cpg$age4,pca$x[,1:5])
+
+#Plot loadings
+melted <- data.frame(var=mets.cpg$var, var.group=mets.cpg$OLINK.Protein_name, pca$rotation[,1:10])
+melted <- melt(melted, id=c("var","var.group"))
+melted <- mutate(melted, index=rep(1:471, 10))
+
+ggplot(data=melted) +
+  geom_bar(aes(x=index, y=value, fill=var.group), stat="identity") +
+  facet_wrap(~variable)
+
+# Plot
+scatterplotMatrix(~PC1+PC2+PC3+PC4+PC5|bmi3, data=pca1,main="PCA",by.groups=F,smoother=F,reg.line=F,col=c("red","blue","green","purple"),pch=c(18,20,22,24))
+
+#Ad PCs as variables
+pc <- colnames(pca$x[,1:50])
+dat1cpg[,colnames(pca$x[,1:50])] <- pca$x[,1:50]
+
+```
+
+Mixed models loop PCAs:
 
 ```{r mixed effects models,echo=F}
-var <- cpg1
+var <- var1 <- pc
 
 # Data fix 
-dat.lme <- dat1
+dat.lme <- dat1cpg
 
 # Physical activity vairabel
 dat.lme["phys"] <- dat.lme$g6
-dat.lme$bmi3 <- relevel(dat.lme$bmi3,ref="2") 
-
-# Variables with many missing: Remove with over 50% missing
-dat.11 <- dplyr::select(dat.lme,one_of(var))
-na1 <- apply(dat.11,2,function(x) sum(is.na(x))/length(x))
-plot(na1);abline(h=0.5)
-na1[na1>=0.5]
-manyna1 <- names(na1[na1>=0.5])
-# Remove them: (only important if dat1 is used)
-# Remove TRAIL because it is the same as TNFSF10
-dat <- dplyr::select(dat.11,-one_of(c(manyna1)),-TRAIL)
-var1 <- names(dat)
 alpha <- 0.05/length(var1)
 
 #Set outliers to NA (>3 in standardized pearson residual in the analyses)
-load("/Users/Myte/Dropbox/Documents/JOBB ONKO/Sophia Early Detection/residual analysis/outliers.RData")
-for(i in 1:nrow(outliers)){
-  dat.lme[dat.lme$id==outliers[i,"id"], as.character(outliers[i,"variable"])] <- NA
-}
-
+#load("/Users/Myte/Dropbox/Documents/JOBB ONKO/Sophia Early Detection/residual analysis/outliers.RData")
+#for(i in 1:nrow(outliers)){
+#  dat.lme[dat.lme$id==outliers[i,"id"], as.character(outliers[i,"variable"])] <- NA
+#}
 
 #
 # Model fitting 
@@ -1944,32 +1997,32 @@ covm <- c("casecontrol","age","gender","phys","smoke","bmi","bmi2","stg2","ht2",
           "metsz","mets2","bmiz","stgz","midbpz","blods0z","skolz") 
 pm <- length(covm)
 # Matrix to store estimate in:
-mod1 <- matrix(nrow=ncol(dat),ncol=length(cov))
-coef1 <- sd1 <- matrix(nrow=ncol(dat),ncol=length(cov)+2)
-mod.mets1 <- matrix(nrow=ncol(dat),ncol=12)
-coef.mets1 <- sd.mets1 <- matrix(nrow=ncol(dat), ncol=12) 
+mod1cpg <- matrix(nrow=length(var1),ncol=length(cov))
+coef1cpg <- sd1cpg <- matrix(nrow=length(var1),ncol=length(cov)+2)
+mod.mets1cpg <- matrix(nrow=length(var1),ncol=12)
+coef.mets1cpg <- sd.mets1cpg <- matrix(nrow=length(var1), ncol=12) 
 # colnames
-colnames(mod1) <- c("Case","Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Snus","Medications")
-colnames(coef1) <-  colnames(sd1) <- c("Case","Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Ex.smoking","Snus","Ex.snus","Medications")
-colnames(mod.mets1) <-  c("MetS_score","MetS_groups",
+colnames(mod1cpg) <- c("Case","Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Snus","Medications")
+colnames(coef1cpg) <-  colnames(sd1cpg) <- c("Case","Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Ex.smoking","Snus","Ex.snus","Medications")
+colnames(mod.mets1cpg) <-  c("MetS_score","MetS_groups",
                           "BMI_score","Triglycerices_score","MidBP_score","P.glucose_score","Cholesterol_score",
                           "BMI_groups","Triglycerices_groups","Hypertension","Glucose_groups","Cholesterol_groups")
-colnames(coef.mets1) <- colnames(sd.mets1) <- c("MetS_score","MetS_groups",
+colnames(coef.mets1cpg) <- colnames(sd.mets1cpg) <- c("MetS_score","MetS_groups",
                           "BMI_score","Triglycerices_score","MidBP_score","P.glucose_score","Cholesterol_score",
                           "BMI_groups","Triglycerices_groups","Hypertension","Glucose_groups","Cholesterol_groups")
 # rownames
-rownames(mod1) <- rownames(coef1)<- rownames(sd1) <- rownames(mod.mets1) <- rownames(coef.mets1)  <- rownames(sd.mets1) <- var1 
+rownames(mod1cpg) <- rownames(coef1cpg)<- rownames(sd1cpg) <- rownames(mod.mets1cpg) <- rownames(coef.mets1cpg)  <- rownames(sd.mets1cpg) <- var1 
 # residuals:
-res.proteins <- dat.lme[,var1]
+res.proteinscpg <- dat.lme[,var1]
 # intraclass correlations:
-icc <- numeric(length(var1))
-names(icc) <- var1
-icc.lifestyle <- numeric(length(var1))
-names(icc.lifestyle) <- var1
-icc.mets <- numeric(length(var1))
-names(icc.mets) <- var1
+icccpg <- numeric(length(var1))
+names(icccpg) <- var1
+icc.lifestylecpg <- numeric(length(var1))
+names(icc.lifestylecpg) <- var1
+icc.metscpg <- numeric(length(var1))
+names(icc.metscpg) <- var1
 # Rsq conditional and marginal
-r2 <- data.frame(var=var1,r2m=numeric(length(var1)),r2c=numeric(length(var1)),
+r2cpg <- data.frame(var=var1,r2m=numeric(length(var1)),r2c=numeric(length(var1)),
                  r2m.mets=numeric(length(var1)),r2c.mets=numeric(length(var1)),
                  r2m.comp=numeric(length(var1)),r2c.comp=numeric(length(var1)),
                  r2m.life=numeric(length(var1)),r2c.life=numeric(length(var1)))
@@ -1981,108 +2034,303 @@ for(i in var1){
   j=j+1
   cat(length(var1)-j," ")
   dat.lme["var"] <- dat.lme[,i]
+  tryCatch({
   #Emply model
-  g <- lme(var~casecontrol+age+gender+phys+smoke, 
+  g <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke, 
             random =list(~1|person),
             na.action=na.exclude, method="ML",
             data=dat.lme)
   #icc empty
     varests <- as.numeric(VarCorr(g)[c(1,2)]) 
-    icc[j] <- varests[1]/sum(varests)
+    icccpg[j] <- varests[1]/sum(varests)
   # Rsq empty:
-    g <- lme(var~casecontrol+age+gender+phys+smoke, random =list(~1|person),  na.action=na.omit, method="ML",  data=dat.lme)
+    g <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke, random =list(~1|person),  na.action=na.omit, method="ML",  data=dat.lme)
     r <-  r.squaredGLMM(g)
-    r2[j,2] <- r[1]
-    r2[j,3] <- r[2]
+    r2cpg[j,2] <- r[1]
+    r2cpg[j,3] <- r[2]
   # MODELs lifestyle
-    g <- lme(var~casecontrol+age+gender+langd+vikt+phys+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
+    g <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+langd+vikt+phys+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
             random =list(~1|person),
             na.action=na.exclude, method="ML",
             data=dat.lme)
     # p-values
     a <-   anova(g)
     s <- summary(g)
-    mod1[j,] <- a$`p-value`[-1]
+    mod1cpg[j,] <- a$`p-value`[8:22]
     # Coefficients
-    coef1[j,] <- s$tTable[-1,1]
+    coef1cpg[j,] <- s$tTable[8:24,1]
     # SD
-    sd1[j,] <- s$tTable[-1,2]
+    sd1cpg[j,] <- s$tTable[8:24,2]
     # Intercept : between-subjects variace, residual: within subject variance
     varests <- as.numeric(VarCorr(g)[c(1,2)]) 
-    icc.lifestyle[j] <- varests[1]/sum(varests)
+    icc.lifestylecpg[j] <- varests[1]/sum(varests)
     #Rsq lifestyle
-    g <- lme(var~casecontrol+age+gender+langd+vikt+phys+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
+    g <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+langd+vikt+phys+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
             random =list(~1|person),
             na.action=na.omit, method="ML",
             data=dat.lme)
      r <-  r.squaredGLMM(g)
-    r2[j,8] <- r[1]
-    r2[j,9] <- r[2]
+    r2cpg[j,8] <- r[1]
+    r2cpg[j,9] <- r[2]
  # MODELs MetS
-    g1 <- lme(var~metsz+casecontrol+age+gender+phys+smoke,
+    g1 <- lme(var~metsz+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
-    g2 <- lme(var~mets2+casecontrol+age+gender+phys+smoke,
+    g2 <- lme(var~mets2+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
-    g3 <- lme(var~bmiz+stgz+midbpz+blods0z+skolz+casecontrol+age+gender+phys+smoke,
+    g3 <- lme(var~bmiz+stgz+midbpz+blods0z+skolz+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
-    g4 <- lme(var~bmi2+stg2+ht2+gluc2+skol2+casecontrol+age+gender+phys+smoke,
+    g4 <- lme(var~bmi2+stg2+ht2+gluc2+skol2+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
     #ICC
     varests <- as.numeric(VarCorr(g1)[c(1,2)]) 
-    icc.mets[j] <- varests[1]/sum(varests)
+    icc.metscpg[j] <- varests[1]/sum(varests)
     #Resiudals:
-    res.proteins[,i] <- residuals(g1, type="pearson")
+    res.proteinscpg[,i] <- residuals(g1, type="pearson")
     # P-values
-    mod.mets1[j,1] <- anova(g1)$`p-value`[2]
-    mod.mets1[j,2] <- anova(g2)$`p-value`[2]
-    mod.mets1[j,3:7] <- anova(g3)$`p-value`[2:6]
-    mod.mets1[j,8:12] <- anova(g4)$`p-value`[2:6]
+    mod.mets1cpg[j,1] <- anova(g1)$`p-value`[2]
+    mod.mets1cpg[j,2] <- anova(g2)$`p-value`[2]
+    mod.mets1cpg[j,3:7] <- anova(g3)$`p-value`[2:6]
+    mod.mets1cpg[j,8:12] <- anova(g4)$`p-value`[2:6]
 
     # Coefficients
-    coef.mets1[j,1] <- summary(g1)$tTable[2,1]
-    coef.mets1[j,2] <- summary(g2)$tTable[2,1]
-    coef.mets1[j,3:7] <- summary(g3)$tTable[2:6,1]
-    coef.mets1[j,8:12] <- summary(g4)$tTable[2:6,1]
+    coef.mets1cpg[j,1] <- summary(g1)$tTable[2,1]
+    coef.mets1cpg[j,2] <- summary(g2)$tTable[2,1]
+    coef.mets1cpg[j,3:7] <- summary(g3)$tTable[2:6,1]
+    coef.mets1cpg[j,8:12] <- summary(g4)$tTable[2:6,1]
 
     # sd
-    sd.mets1[j,1] <- summary(g1)$tTable[2,2]
-    sd.mets1[j,2] <- summary(g2)$tTable[2,2]
-    sd.mets1[j,3:7] <- summary(g3)$tTable[2:6,2]
-    sd.mets1[j,8:12] <- summary(g4)$tTable[2:6,2]
+    sd.mets1cpg[j,1] <- summary(g1)$tTable[2,2]
+    sd.mets1cpg[j,2] <- summary(g2)$tTable[2,2]
+    sd.mets1cpg[j,3:7] <- summary(g3)$tTable[2:6,2]
+    sd.mets1cpg[j,8:12] <- summary(g4)$tTable[2:6,2]
     #Rsq mets
-    g1 <- lme(var~metsz+casecontrol+age+gender+phys+smoke,
+    g1 <- lme(var~metsz+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.omit,method="ML",data=dat.lme)
     r <-  r.squaredGLMM(g1)
-    r2[j,4] <- r[1]
-    r2[j,5] <- r[2]
+    r2cpg[j,4] <- r[1]
+    r2cpg[j,5] <- r[2]
     #Rsq mets components
-   g3 <- lme(var~bmiz+stgz+midbpz+blods0z+skolz+casecontrol+age+gender+phys+smoke,
+   g3 <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+bmiz+stgz+midbpz+blods0z+skolz+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.omit,method="ML",data=dat.lme)
      r <-  r.squaredGLMM(g3)
-    r2[j,6] <- r[1]
-    r2[j,7] <- r[2]
+    r2cpg[j,6] <- r[1]
+    r2cpg[j,7] <- r[2]
+    }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
 }
 
 
+```
 
+Get significants
+```{r PCA significants} 
+# Significant lifestyle variables
+modf.bh0 <- apply(mod1cpg,2,p.adjust,method="bonferroni")
+modm <- data.frame(var=rownames(modf.bh0),ifelse(modf.bh0<=0.05,1,0)) 
+signmcpg <- mutate(modm,sum.sign=rowSums(modm[,-1])) %>% filter(sum.sign>0) #get significant variables 
+signmcpg <- signmcpg[order(signmcpg$var),]
+signmcpg
+
+# Significant MetS
+mets.bh1 <- apply(mod.mets1cpg, 2, p.adjust,method="bonferroni")
+mets.bh2 <- data.frame(var=rownames(mets.bh1),ifelse(mets.bh1<=0.05,1,0)) 
+mets.signcpg <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,2:13])) %>% filter(sum.sign>0) 
+mets.signcpg <- mets.signcpg[order(mets.signcpg$var),]
+mets.signcpg
+
+```
+
+heatmap of p-values:
+```{r}
+gdat <- data.frame(var=rownames(mod.mets1cpg),mod.mets1cpg)
+gdat <- gdat %>% melt(id="var")
+gdat$var <- fct_relevel(gdat$var, pc)
+gdat$value4 <- cut(gdat$value, breaks=c(0,0.001,0.05,1), labels=c("<0.001","<0.05"," "))
+  
+ggplot(gdat,aes(x = var, y = variable)) + 
+   geom_tile(aes(fill = value), colour = "white") + 
+    scale_fill_gradientn(values=c(1,0.001,0), colors=c("white","orange","red"),trans="log",
+    breaks = c(0, 0.001, 0.05, 1))+
+   theme(axis.text.x = element_text(angle = 55, hjust = 1))
+
+#discrete tiles:
+ggplot(gdat,aes(x = var, y = variable)) + 
+   geom_tile(aes(fill = value4)) + 
+   scale_fill_manual(values=c("red","orange","white"))+
+   theme(axis.text.x = element_text(angle = 65, hjust = 1))+
+  
+
+
+```
+
+
+Mixed models loop: enskilda 
+
+```{r CpG mixed effects models,echo=F}
+var <- var1 <- cpg1
+
+# Data fix 
+dat.lme <- dat1cpg
+
+# Physical activity vairabel
+dat.lme["phys"] <- dat.lme$g6
+alpha <- 0.05/length(var1)
+
+#Set outliers to NA (>3 in standardized pearson residual in the analyses)
+load("/Users/Myte/Dropbox/Documents/JOBB ONKO/Sophia Early Detection/residual analysis/outlierscpg.RData")
+for(i in 1:nrow(outliers)){
+  dat.lme[dat.lme$id==outlierscpg[i,"id"], as.character(outlierscpg[i,"variable"])] <- NA
+}
+
+#
+# Model fitting 
+# Lifestyle variables: KÖR BMI för sig, verkar vara problem
+cov <- c("casecontrol","age","gender","langd","vikt","phys","skol","stg","blods0","blods2","sbt","dbt","smoke","snus","med") 
+p <- length(cov)
+covm <- c("casecontrol","age","gender","phys","smoke","bmi","bmi2","stg2","ht2","gluc2","skol2",
+          "metsz","mets2","bmiz","stgz","midbpz","blods0z","skolz") 
+pm <- length(covm)
+# Matrix to store estimate in:
+mod1cpg <- matrix(nrow=length(var1),ncol=length(cov))
+coef1cpg <- sd1cpg <- matrix(nrow=length(var1),ncol=length(cov)+2)
+mod.mets1cpg <- matrix(nrow=length(var1),ncol=12)
+coef.mets1cpg <- sd.mets1cpg <- matrix(nrow=length(var1), ncol=12) 
+# colnames
+colnames(mod1cpg) <- c("Case","Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Snus","Medications")
+colnames(coef1cpg) <-  colnames(sd1cpg) <- c("Case","Age","Sex","Height","Weight","Physical.activity","Colesterol","Triglycerides","P.glucose","Glucose.tolerance","SBP","DBP","Smoking","Ex.smoking","Snus","Ex.snus","Medications")
+colnames(mod.mets1cpg) <-  c("MetS_score","MetS_groups",
+                          "BMI_score","Triglycerices_score","MidBP_score","P.glucose_score","Cholesterol_score",
+                          "BMI_groups","Triglycerices_groups","Hypertension","Glucose_groups","Cholesterol_groups")
+colnames(coef.mets1cpg) <- colnames(sd.mets1cpg) <- c("MetS_score","MetS_groups",
+                          "BMI_score","Triglycerices_score","MidBP_score","P.glucose_score","Cholesterol_score",
+                          "BMI_groups","Triglycerices_groups","Hypertension","Glucose_groups","Cholesterol_groups")
+# rownames
+rownames(mod1cpg) <- rownames(coef1cpg)<- rownames(sd1cpg) <- rownames(mod.mets1cpg) <- rownames(coef.mets1cpg)  <- rownames(sd.mets1cpg) <- var1 
+# residuals:
+res.proteinscpg <- dat.lme[,var1]
+# intraclass correlations:
+icccpg <- numeric(length(var1))
+names(icccpg) <- var1
+icc.lifestylecpg <- numeric(length(var1))
+names(icc.lifestylecpg) <- var1
+icc.metscpg <- numeric(length(var1))
+names(icc.metscpg) <- var1
+# Rsq conditional and marginal
+r2cpg <- data.frame(var=var1,r2m=numeric(length(var1)),r2c=numeric(length(var1)),
+                 r2m.mets=numeric(length(var1)),r2c.mets=numeric(length(var1)),
+                 r2m.comp=numeric(length(var1)),r2c.comp=numeric(length(var1)),
+                 r2m.life=numeric(length(var1)),r2c.life=numeric(length(var1)))
+#
+# Main loop:
+#
+j=0
+for(i in var1){
+  j=j+1
+  cat(length(var1)-j," ")
+  dat.lme["var"] <- dat.lme[,i]
+  tryCatch({
+  #Emply model
+  g <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke, 
+            random =list(~1|person),
+            na.action=na.exclude, method="ML",
+            data=dat.lme)
+  #icc empty
+    varests <- as.numeric(VarCorr(g)[c(1,2)]) 
+    icccpg[j] <- varests[1]/sum(varests)
+  # Rsq empty:
+    g <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke, random =list(~1|person),  na.action=na.omit, method="ML",  data=dat.lme)
+    r <-  r.squaredGLMM(g)
+    r2cpg[j,2] <- r[1]
+    r2cpg[j,3] <- r[2]
+  # MODELs lifestyle
+    g <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+langd+vikt+phys+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
+            random =list(~1|person),
+            na.action=na.exclude, method="ML",
+            data=dat.lme)
+    # p-values
+    a <-   anova(g)
+    s <- summary(g)
+    mod1cpg[j,] <- a$`p-value`[8:22]
+    # Coefficients
+    coef1cpg[j,] <- s$tTable[8:24,1]
+    # SD
+    sd1cpg[j,] <- s$tTable[8:24,2]
+    # Intercept : between-subjects variace, residual: within subject variance
+    varests <- as.numeric(VarCorr(g)[c(1,2)]) 
+    icc.lifestylecpg[j] <- varests[1]/sum(varests)
+    #Rsq lifestyle
+    g <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+langd+vikt+phys+skol+stg+blods0+blods2+sbt+dbt+smoke+snus+med,
+            random =list(~1|person),
+            na.action=na.omit, method="ML",
+            data=dat.lme)
+     r <-  r.squaredGLMM(g)
+    r2cpg[j,8] <- r[1]
+    r2cpg[j,9] <- r[2]
+ # MODELs MetS
+    g1 <- lme(var~metsz+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
+              random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
+    g2 <- lme(var~mets2+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
+              random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
+    g3 <- lme(var~bmiz+stgz+midbpz+blods0z+skolz+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
+              random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
+    g4 <- lme(var~bmi2+stg2+ht2+gluc2+skol2+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
+              random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
+    #ICC
+    varests <- as.numeric(VarCorr(g1)[c(1,2)]) 
+    icc.metscpg[j] <- varests[1]/sum(varests)
+    #Resiudals:
+    res.proteinscpg[,i] <- residuals(g1, type="pearson")
+    # P-values
+    mod.mets1cpg[j,1] <- anova(g1)$`p-value`[2]
+    mod.mets1cpg[j,2] <- anova(g2)$`p-value`[2]
+    mod.mets1cpg[j,3:7] <- anova(g3)$`p-value`[2:6]
+    mod.mets1cpg[j,8:12] <- anova(g4)$`p-value`[2:6]
+
+    # Coefficients
+    coef.mets1cpg[j,1] <- summary(g1)$tTable[2,1]
+    coef.mets1cpg[j,2] <- summary(g2)$tTable[2,1]
+    coef.mets1cpg[j,3:7] <- summary(g3)$tTable[2:6,1]
+    coef.mets1cpg[j,8:12] <- summary(g4)$tTable[2:6,1]
+
+    # sd
+    sd.mets1cpg[j,1] <- summary(g1)$tTable[2,2]
+    sd.mets1cpg[j,2] <- summary(g2)$tTable[2,2]
+    sd.mets1cpg[j,3:7] <- summary(g3)$tTable[2:6,2]
+    sd.mets1cpg[j,8:12] <- summary(g4)$tTable[2:6,2]
+    #Rsq mets
+    g1 <- lme(var~metsz+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
+              random = ~1|person, na.action=na.omit,method="ML",data=dat.lme)
+    r <-  r.squaredGLMM(g1)
+    r2cpg[j,4] <- r[1]
+    r2cpg[j,5] <- r[2]
+    #Rsq mets components
+   g3 <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+bmiz+stgz+midbpz+blods0z+skolz+casecontrol+age+gender+phys+smoke,
+              random = ~1|person, na.action=na.omit,method="ML",data=dat.lme)
+     r <-  r.squaredGLMM(g3)
+    r2cpg[j,6] <- r[1]
+    r2cpg[j,7] <- r[2]
+    }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+}
+
+res.proteinscpg["id"] <- dat.lme$id
 ```
 
 plot residuals:
   
 ```{r plot residuals}
 #Histograms
-res.proteins %>% melt() %>% ggplot(aes(x=value)) + geom_histogram() + facet_wrap(~variable,scales="free")
+res.proteinscpg[,1:200] %>% melt() %>% ggplot(aes(x=value)) + geom_histogram() + facet_wrap(~variable,scales="free")
+res.proteinscpg[,201:ncol(res.proteinscpg)] %>% melt() %>% ggplot(aes(x=value)) + geom_histogram() + facet_wrap(~variable,scales="free")
 
 #Variables with potential outliers found from inspecting histograms::
-
 # alla med >3 i pearson residual:
-gdat <- res.proteins %>%mutate(index=seq(1,nrow(res.proteins)), id=as.character(dat.lme$id)) %>% melt(id=c("index","id")) 
-outliers <- gdat[is.na(gdat$value)==F&abs(gdat$value)>3,]
-tab(drop.levels(outliers$variable))
+gdat <- res.proteinscpg %>%mutate(index=seq(1,nrow(res.proteinscpg)), id=as.character(dat.lme$id)) %>% melt(id=c("index","id")) 
+outlierscpg <- gdat[is.na(gdat$value)==F&abs(gdat$value)>3,]
+tab(drop.levels(outlierscpg$variable))
+save(outlierscpg, "outlierscpg.RData")
 
 # plotta de med över 3 i pearson residual visas
-res.proteins %>% dplyr::select(one_of(as.character(outliers$variable))) %>% 
-  mutate(index=seq(1,nrow(res.proteins)), id=as.character(dat.lme$id)) %>% 
+res.proteinscpg %>% dplyr::select(one_of(as.character(outlierscpg$variable))) %>% 
+  mutate(index=seq(1,nrow(res.proteinscpg)), id=as.character(dat1cpg$id)) %>% 
   melt(id=c("index","id")) %>% mutate(out=as.factor(ifelse(abs(value)>3,"outlier","normal"))) %>% 
   ggplot(aes(x=index,y=value,col=out)) +
   geom_point(size=1) + 
@@ -2095,23 +2343,21 @@ Get significant varaibles:
 ```{r get significants}
 
 # Significant lifestyle variables
-modf.bh0 <- apply(mod1,2,p.adjust,method="bonferroni")
+modf.bh0 <- apply(mod1cpg,2,p.adjust,method="bonferroni")
 modm <- data.frame(var=rownames(modf.bh0),ifelse(modf.bh0<=0.05,1,0)) 
-signm <- mutate(modm,sum.sign=rowSums(modm[,-1])) %>% filter(sum.sign>0) #get significant variables 
-signm <- signm[order(signm$var),]
-coefm <- data.frame(var=rownames(coef1),coef1)
-signm 
+signmcpg <- mutate(modm,sum.sign=rowSums(modm[,-1])) %>% filter(sum.sign>0) #get significant variables 
+signmcpg <- signmcpg[order(signmcpg$var),]
+signmcpg
 
 # Significant MetS
-mets.bh1 <- apply(mod.mets1, 2, p.adjust,method="bonferroni")
+mets.bh1 <- apply(mod.mets1cpg, 2, p.adjust,method="bonferroni")
 mets.bh2 <- data.frame(var=rownames(mets.bh1),ifelse(mets.bh1<=0.05,1,0)) 
-mets.sign <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,2:8])) %>% filter(sum.sign>0) 
-mets.sign <- mets.sign[order(mets.sign$var),]
-mets.coef <- data.frame(var=rownames(coef.mets1),coef.mets1)
-mets.sign 
+mets.signcpg <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,2:8])) %>% filter(sum.sign>0) 
+mets.signcpg <- mets.signcpg[order(mets.signcpg$var),]
+mets.signcpg <- merge(mets.signcpg, mets.cpg[mets.cpg$var %in% mets.signcpg$var,], by="var")
+mets.signcpg
 
 write.xlsx(mets.sign, file ="mets sign.xlsx",sheetName = "TestSheet", row.names = T)
-
 
 # Skapa Sophias excel-fil:
 # adj p
@@ -2164,25 +2410,66 @@ ggplot(gdata,aes(x=reorder(var1,icc),y=icc)) +
 
 #Correlations between CpG and markers 
 
-Heatmap old
-```{r correlations heatmap,echo=F}
+Heatmaps
+```{r correlations heatmaps,echo=F}
+# Proteins correlations:
+prot <- dplyr::select(dat1, IL_8:FR_alpha) %>% names()
 
-# Heatmap 2 : 8*10 inches works good
+# Variables with many missing: Remove with over 50% missing
+dat.11 <- dplyr::select(dat1, one_of(prot))
+na1 <- apply(dat.11,2,function(x) sum(is.na(x))/length(x))
+na1[na1>=0.5]
+manyna1 <- names(na1[na1>=0.5])
+# Remove them: (only important if dat1 is used)
+# Remove TRAIL because it is the same as TNFSF10
+prot <- dplyr::select(dat.11,-one_of(c(manyna1)),-TRAIL) %>% names()
+
+cor1 <- cor(dat1[,prot],method="spearman",use="pairwise.complete.obs")
+
+# Heatmap 2 : 9*9 inches works good
 heat <- t(as.matrix(cor1))
-dist.pear <- function(x) as.dist(1-cor(t(x),method="spearman",use="pairwise.complete.obs"))
+mydist=function(c) {dist(c,method="euclidian")}
 myclust <- function(x) hclust(x, method="average")
+
 #heatmap.2(heat,col=bluered, trace="none", distfun=dist.pear, hclustfun=hclust.ave)
-heatmap.2(heat,dendrogram = "row",
-          distfun = dist.pear,
+heatmap.2(heat, dendrogram = "col",
+          distfun = mydist,
           hclustfun = myclust,
           trace="none",
           col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
+
+# CpG correlations:
+cor1 <- cor(dat1cpg[,cpg1],method="spearman",use="pairwise.complete.obs")
+
+#Grouping
+fcol <- as.factor(mets.cpg$OLINK.Protein_name)
+levels(fcol) <- scales::hue_pal()(length(levels(fcol)))
+fcol <- as.character(fcol)
+
+# Heatmap 2 : 8*10 inches works good
+heat <- t(as.matrix(cor1))
+mydist=function(c) {dist(c,method="euclidian")}
+myclust <- function(x) hclust(x, method="average")
+#heatmap.2(heat,col=bluered, trace="none", distfun=dist.pear, hclustfun=hclust.ave)
+heatmap.2(heat, dendrogram = "col",
+           labRow = FALSE, labCol = FALSE,
+          distfun = mydist,
+          hclustfun = myclust,
+          trace="none",
+          ColSideColors=fcol,
+          col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
+
+legend("topright", title = " ", 
+       legend = levels(as.factor(mets.cpg$OLINK.Protein_name)),
+       fill= levels(as.factor(fcol)),
+       border=FALSE, bty="n", y.intersp = 1, cex=0.8)
+
 
 ```
 
 ###Circos
 
-Circos correlations: ALL proteins, plot those with R2 > 0.5. Color those with R2 > 0.8
+Circos correlations: ALL proteins , plot those with R2 > 0.5. Color those with R2 > 0.8
 PROV 1 o 2
 ```{r circos correlations ,echo=F}
 #Data fix 
@@ -2283,26 +2570,19 @@ pairs(rdata1[,c("SCAMP3", "TXLNA","STAMPB","SIRT2","AXIN1", "LYN", "ABL1","LAP.T
 
 ```
 
-Circos correlations - signiricant in metS:
+Circos correlations - signiricant in metS, proteins and CpGs:
 
 ```{r circos corelations significants METS,echo=F}
 #Data fix 
-#significants in metS
-mets.bh1 <- apply(mod.mets1,2,p.adjust,method="bonferroni")
-mets.bh2 <- data.frame(var=rownames(mets.bh1),ifelse(mets.bh1<=0.05,1,0)) 
-mets.sign <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,2:7])) %>% filter(sum.sign>0) 
-mets.sign <- mets.sign[order(mets.sign$var),]
-mets.coef <- data.frame(var=rownames(coef.mets1),coef.mets1)
-mets.sign
+dim(dat1cpg[dat1cpg$id %in% dat1$id,])
+rdata1 <- merge(dat1cpg,dat1,by="id") %>% dplyr::select(one_of(as.character(mets.sign$var)), one_of(cpg1))
 
 # TRAIL is the same as TNFSF10 so remove
-choose <- as.character(mets.sign$var)
-rdata1 <- res.proteins %>% dplyr::select(one_of(choose))
 names(rdata1) <- gsub('_', '-', names(rdata1))
 
 # Correlations prov 1
 str(rdata1)
-cor1 <- cor(rdata1,method="spearman",use="pairwise.complete.obs")
+cor1 <- cor(rdata1, method="spearman", use="pairwise.complete.obs")
 # Melt
 cor11 <- melt(cor1);nrow(cor11)
 #Remove diagnonal in correlations matrix
@@ -2313,7 +2593,9 @@ sum(cor11[,3]<0 & abs(cor11[,3])>0.5)
 cor11[,3] <- cor11[,3]^2
 # Remove same correlations 
 cor11 <- cor11[!duplicated(cor11[,3]),]
-cor22 <- cor11
+# Only those above 0.5
+cor11[,4] <- ifelse(cor11[,3]>=0.5,1,0) 
+cor22 <- cor11[cor11[,4]==1,1:3]
 
 # Circos plot
 # Set grid colors
@@ -2324,7 +2606,7 @@ names(grid.col)=uniq
 
 #Highlight cols
 col <-  grid.col[match(cor22[,1],names(grid.col))]
-col[cor22[3] < 0.2] = "gray90"
+col[cor22[3] < 0.75] = "gray90"
 
 # Scale correlations
 #cor22[,3] <- (1/(1-cor22[,3]))
