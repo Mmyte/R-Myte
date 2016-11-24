@@ -45,23 +45,67 @@ tab <- function(x,y=1){
 # Import data ------------------------- 
 # NSHDS kohort data n = 225157, 125381 individer
 load("/Users/Myte/Documents/DATA-filer/EnergyMet kohort/crc_enkat.RData")
-load("/Users/Myte/Documents/DATA-filer/EnergyMet kohort/crc patcodes.RData")
+load("/Users/Myte/Documents/DATA-filer/EnergyMet kohort/crc_enkat old.RData")
 options("openxlsx.dateFormat" = "yyyy-mm-dd")
 # Import excel (NOT RUN)
-#inputcrc <- openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/Crc_enkat_160922_leveransfil.xlsx",
+#inputcrc <- openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/Crc_enkat_161124_leveransfil.xlsx",
 #                          sheet=1, 
 #                           skipEmptyRows=FALSE,
 #                           detectDates=T)
-
 # kvalitetsregister-data
 kval = openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/Kvalitetsreg_160921_leverans.xlsx",
                            sheet=1, 
                            skipEmptyRows=FALSE,
                            detectDates=T)
-# Create unique ID variable and insert patcodes:
-sum(patcodes$crc_id==inputcrc$crc_id)
-inputcrc <- mutate(inputcrc,id=1:nrow(inputcrc),pat_code=patcodes$pat_code)
-rm(patcodes)
+# Create unique ID 
+inputcrc <- unite(inputcrc, "id", crc_id,measurement,remove=F)
+inputcrc2 <- unite(inputcrc2, "id", crc_id,measurement,remove=F)
+inputcrc <- inputcrc[order(inputcrc$id),]
+inputcrc2 <- inputcrc2[order(inputcrc2$id),]
+
+# vad är samma? ett häng variabler som är olika!!
+identical(inputcrc$id,inputcrc2$id) #ID...duh
+inputcrc <- rename(inputcrc, diadat=DIADAT, icdo=ICDO, icd7=ICD7,dodat=DODAT)
+var <- names(inputcrc)
+same <- matrix(ncol=2,nrow=length(var))
+same[,1] <- var
+j=0
+for(i in var){
+  j=j+1
+  same[j,2] <-   identical(inputcrc[,i],inputcrc2[,i])
+}
+same[same[,2]==F,]
+
+identical(inputcrc$q_date,inputcrc2$q_date)
+identical(inputcrc$DIADAT,inputcrc2$diadat)
+identical(inputcrc$g6,inputcrc2$g6)
+#
+# MetS variabler ej samma....typ 20 pers mer med NAs
+identical(inputcrc$sbt,inputcrc2$sbt)
+identical(inputcrc$vikt,inputcrc2$vikt)
+identical(inputcrc$dbt,inputcrc2$dbt)
+identical(inputcrc$vikt,inputcrc2$vikt)
+identical(inputcrc$langd,inputcrc2$langd)
+#
+apply(inputcrc2,2,function(x) sum(is.na(x)))
+apply(inputcrc,2,function(x) sum(is.na(x)))
+# Monica dock samma
+identical(inputcrc$btsyst,inputcrc2$btsyst)
+identical(inputcrc$btdiast,inputcrc2$btdiast)
+# id 61931_1
+d <- cbind(inputcrc[,c("id","sbt","dbt","vikt")],inputcrc2[,c("id","sbt","dbt","vikt")])
+names(d) <- c("id","sbt","dbt","vikt","id2","sbt2","dbt2","vikt2")
+identical(d$id,d$id2)
+
+d["diff"] <- d$sbt==d$sbt2
+View(d[is.na(d$diff)==T&is.na(d$sbt2)==F,])
+d["diff"] <- d$vikt==d$vikt2
+View(d[is.na(d$diff)==T&is.na(d$vikt2)==F,])
+d <- filter(d, id!= "61931_1")
+d["diff"] <- d$vikt==d$vikt2
+identical(d$vikt,d$vikt2)
+View(d[is.na(d$diff)==T&is.na(d$vikt)==F,])
+#
 crc <- inputcrc
 
 # Datum och essential variables ----------------
@@ -86,7 +130,7 @@ crc[is.na(crc$uppfdat)==F&substr(crc$uppfdat,5,6)=="00","uppfdat"] <- paste0(sub
 crc[is.na(crc$uppfdat)==F&substr(crc$uppfdat,7,8)=="00","uppfdat"] <- paste0(substr(crc[is.na(crc$uppfdat)==F&substr(crc$uppfdat,7,8)=="00","uppfdat"],1,6),"15")
 crc$uppfdat <- ymd(as.numeric(crc$uppfdat))
 # Fix DIADAT
-crc$DIADAT <- ymd(crc$DIADAT)
+crc$DIADAT <- ymd(crc$diadat)
 #
 # Years and attained age
 crc["qyear"] <- as.numeric(substr(crc$q_date,1,4))
@@ -119,7 +163,6 @@ kval1 <- dplyr::rename(
             opdat = ymd(A2_opdat),
             lokal = ifelse(A2_tumlok_Värde==1,A2_tumlage_Värde,9), 
             lokal3 = cut(lokal,c(-1,0,4,7,11),labels=c("0","1","2","3")))
-summary(kval1)
 (a <- apply(kval1,2,function(x) sum(is.na(x)==T)))
 a[a==0]
 #
@@ -159,14 +202,16 @@ tab(crc$kvalreg,crc$measurement)
 #
 # Folat: ------------
 # Björns MSI/BRAF fil - MONICA saknar diagnosdatum
-bg <- read.csv("~/Documents/DATA-filer/MSI BRAF.csv", sep=";", dec=",",na.strings=c(""," ","NA"))
+bg2 <- read.csv("~/Documents/DATA-filer/MSI BRAF.csv", sep=";", dec=",",na.strings=c(""," ","NA"))
+bg <- openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/folat_fall.xlsx",
+                           sheet=1, 
+                           skipEmptyRows=FALSE,
+                           detectDates=T)
 # "Of the subjects in our present study, 98% had a low ratio of methionine sulfoxide to methionine (less than 10%
 # of total plasma concentrations of methionine)""
-# set this individual to Filter_folate == 2
+# set this individual to Filter_folate == 2, not applicable when using folat_fall file
 #bg[bg$idnr==4385,"fall"] <- 1
-bg[bg$idnr==4385,"Filter_folate"] <- 2
-bg <- filter(bg,fall==1) %>% dplyr::select(
-                                           idnr,pat_code,Filter_folate, pyear, Age, delproj_num, PAD, dia_age2, 
+bg <- bg %>% dplyr::select(idnr, pnum,pat_code,Filter_folate, pyear, Age, delproj_num, PAD, dia_age2, 
                                            KRAS, BRAF, MSI, Cimp, diadat2, langd, vikt, Lokal_3:M_TNM, Stadium, 
                                            T_TNM, N_TNM, M_TNM, dodsorsak, Dead, avlidendat, datdiff_km2,-DIADAT) %>% 
                              dplyr::rename(
@@ -177,8 +222,11 @@ bg <- filter(bg,fall==1) %>% dplyr::select(
 bg[bg==9999] <- NA
 apply(bg,2,function(x) sum(is.na(x)==T))
 #
-#vilka crc-fall i bg finns i crc-fil? 636 stycken! 587 unika fall:
+#vilka crc-fall i bg finns i crc-fil? 636 stycken! 587 unika fall
+# 649 när man använder pnum! 
 sum(crc$fall==1&(crc$pat_code %in% bg$pat_code))
+sum(robin$Pnum %in% bg$pnum)
+
 crc["folatbg"] <- ifelse(crc$fall==1&(crc$pat_code %in% bg$pat_code),1,0)
 tab(crc$folatbg,crc$measurement)
 #
@@ -194,7 +242,7 @@ filter(bg, pat_code == 2480900528)
 filter(crums, crc_id %in% dub)
 # remove the obs with least concurring data. 
 crums <- filter(crums, pad!=199519387,pad!=199900914)
-# vilka i NSHDS finns i crums? Några är med men ej prospektiva fall 
+# vilka i NSHDS finns i crums? Några är med men ej prospektiva fall. 141 stycken unika!
 sum(crc[,"crc_id"] %in% crums$crc_id)
 sum(crc[crc$fall==1,"crc_id"] %in% crums$crc_id)
 crc["crums"] <- ifelse(crc$fall==1&(crc$crc_id %in% crums$crc_id),1,0)
@@ -255,7 +303,7 @@ tab(crc1[crc1$measurement==1,"validated"])
 tab(crc1[crc1$measurement==1,"validated"], crc1[crc1$measurement==1,"dyear"])
 # Hur många måste vi kolla upp?
 tab(crc1[crc1$measurement==1,"validated"], crc1[crc1$measurement==1,"kvaldiff"])
-# 170 ej validerade + 135 av kvalreg validerade har annat datum än från cancerreg 
+# 155 ej validerade + 135 av kvalreg validerade har annat datum än från cancerreg 
 #några har dock "rätt" datum i björns fil
 #
 # Molecular data? 
@@ -278,7 +326,7 @@ crc1$kras.bg <- ifelse(is.na(crc1$kras.bg)==T,NA,ifelse(crc1$kras.bg==1,0,1))
 crc1$braf.bg <- ifelse(is.na(crc1$braf.bg)==T,NA,ifelse(crc1$braf.bg==1,0,1))
 # Write file with data för measurement == 1 used to validate data:
 crc2 <- crc1 %>% filter(measurement==1) %>% 
-         mutate_at(c(193:194, 227:230), funs(as.integer)) %>%
+         mutate_at(c(200:203, 234:237), funs(as.integer)) %>% #change so that kras/braf,msi,cimp..integers for coalesce
          dplyr::select(crc_id:fasta_prov,dodsdat:bgdiff) %>% 
           mutate(msi.comb = coalesce(msi.bg, msi.c), kras.comb = coalesce(kras.bg, kras.c), 
                braf.comb = coalesce(braf.bg, braf.c),cimp.comb = coalesce(cimp.bg, cimp.c)) %>% 
@@ -290,7 +338,31 @@ crc2 <- crc1 %>% filter(measurement==1) %>%
                       braf.bg, braf.c, braf.comb, kras.bg, kras.c, kras.comb, 
                       msi.bg,msi.c,msi.comb, cimp.bg,cimp.c,cimp.comb, everything()) %>% 
         arrange(desc(validated))
-#write.xlsx(crc2, file="NSHDS merged crc fall.xlsx")
+write.xlsx(crc2, file="NSHDS merged crc fall .xlsx")
+
+
+# Journal-kollad fil: stämmer EJ! 
+robin <- openxlsx::read.xlsx(xlsxFile="/Users/Myte/Documents/DATA-filer/EnergyMet kohort/Nshds_merged_crcfall_161101 JOURNALKOLLAD.xlsx",
+                          sheet=1, 
+                           skipEmptyRows=FALSE,
+                           detectDates=T)
+#Skapa ad hoc ID med hjälp av diadat och q date:
+robin <- unite(robin,"person",DIADAT ,q_date,remove=FALSE)
+crc2 <- unite(crc2,"person", DIADAT ,q_date,remove=FALSE)
+
+robin <- robin[order(robin$person),]
+crc2 <- crc2[order(crc2$person),]
+sum(robin$person==crc2$person)
+
+robin$DIADAT <- ymd(robin$diadat3)
+crc2 <- crc2[order(crc2$id),]
+robin <- robin[order(robin$id),]
+sum(robin$id==crc2$id)
+
+
+
+
+
 
 #
 # NSHDS Exlcusions  -------------------------
@@ -316,36 +388,68 @@ crc["bmi3"] <- cut(crc$bmi,breaks=c(0,20,25,30,70),right=T,labels=c(1,2,3,4))
 #crc$bmi3 <- fct_relevel(crc$bmi3,"2")
 
 # MetS variables
+# Normalize variables by analysis methods:
+crc["skola"] <- ifelse(crc$efter_090901==1&is.na(crc$efter_090901)==F,0.170+0.939*crc$skol,crc$skol) 
+crc["stga"] <- ifelse(crc$efter_090901==1&is.na(crc$efter_090901)==F,0.177+0.932*crc$stg,crc$stg) 
+summary(crc$skola-crc$skol)
+summary(crc$stga-crc$stg)
 # Create combined variables for cohorts:
-crc["skolt"] <- ifelse(crc$delproj=="MO",crc$skol_mo,crc$skol)
-crc["stgt"] <- ifelse(crc$delproj=="MO",crc$stg_mo,crc$stg)
+crc["skolt"] <- ifelse(crc$delproj=="MO",crc$skol_mo,crc$skola)
+crc["stgt"] <- ifelse(crc$delproj=="MO",crc$stg_mo,crc$stga)
 crc["sbtt"] <- ifelse(crc$delproj=="MO",crc$btsyst,crc$sbt)
 crc["dbtt"] <- ifelse(crc$delproj=="MO",crc$btdiast,crc$dbt)
 # mid blood pressure
 crc["midbp"] <- (crc$sbtt+crc$dbtt)/2
 #
-# Z-transformed variables per gender and sample
+#Fasting variable
+crc["fasta2"] <- as.factor(crc$fasta_enk);levels(crc$fasta2) <- c(1,2,9999,9999,9999)
+crc$fasta2 <- na_if(crc$fasta2,9999)
+crc$fasta2 <- drop.levels(crc$fasta2)
+crc["fasta22"] <- as.factor(crc$fasta_prov)
+levels(crc$fasta22) <- c(2,2,2,1)
+crc$fasta22 <- fct_relevel(crc$fasta22,1,2)
+crc["fasta"] <- coalesce(crc$fasta2,crc$fasta22)
+#levels(crc$fasta) <- c(1,2,9999)
+crc[is.na(crc$fasta)==T,"fasta"] <- 2
+# check levels within fasting groups, NA and fasta==2 seem similar, set NAs as 2s
+tapply(crc$blods0,crc$fasta,summary)
+tapply(crc$blods2,crc$fasta,summary)
+tapply(crc$skol,crc$fasta,summary)
+tapply(crc$stg,crc$fasta,summary)
+
+# Z-transformed variables per gender and sample and fasting
+# distributions in groups: 
+crc["grouping"] <- drop.levels(interaction(crc$gender, crc$delproj, crc$fasta))
+filter(crc, measurement==1) %>% with(.,tab(grouping))
+#dplyr::select(crc, grouping, bmi, stgt,dbtt,sbtt,midbp,blods0,skolt) %>% melt(id="grouping") %>%
+#  ggplot(aes(x=value, color=grouping)) + geom_density(alpha=0.3) + facet_wrap(~variable,scales="free")
+#create variables:
 crc<- transform(crc, 
-          bmiz=ave(bmi, gender, delproj, measurement, FUN=scale),
-          stgz=ave(log(stg), gender, delproj, measurement, FUN=scale),
-          midbpz=ave(midbp, gender, delproj,measurement, FUN=scale),
-          blods0z=ave(log(blods0), gender, delproj,  measurement, FUN=scale),
-          skolz=ave(skol, gender, delproj, measurement, FUN=scale))
+          bmiz=ave(bmi, measurement, delproj, gender, FUN=scale),
+          midbpz=ave(midbp, measurement, delproj, gender,  FUN=scale),
+          dbtz=ave(dbtt, measurement, delproj, gender,  FUN=scale),
+          sbtz=ave(sbtt, measurement, delproj, gender,  FUN=scale),
+          stgz=ave(log(stgt), measurement, delproj, gender,fasta,  FUN=scale),
+          blods0z=ave(log(blods0), measurement, delproj, gender,fasta,  FUN=scale),
+          blods2z=ave(log(blods2), measurement, delproj, gender,fasta,  FUN=scale),
+          skolz=ave(skolt, measurement, delproj, gender,fasta,  FUN=scale))
 crc["metsz"] <- crc$bmiz + crc$stgz + crc$midbpz + crc$blods0z + crc$skolz
+
 #
 # Cut-off MetS
 crc["bmi2"] <- ifelse(crc$bmi>=30,1,0)
 crc["stg2"] <- ifelse(crc$stgt>=1.7,1,0)
 crc["ht2"] <- ifelse(crc$sbtt>=130|crc$dbtt>=85|crc$med_C5a==1,1,0)
 crc["gluc2"] <- ifelse(crc$blods0>=5.6,1,0)
-crc["mets"] <- crc$stg2 + crc$ht2 + crc$gluc2
+crc["skol2"] <- ifelse(crc$skol>=6.2,1,0)
+crc["mets"] <- crc$stg2 + crc$ht2 + crc$gluc2 +crc$skol2
 crc["mets2"] <- as.factor(ifelse((crc$bmi>=25)&(crc$mets>1),1,0))
 
 # Smoking 
 tab(crc$sm_status)
 crc["smoke"] <- as.factor(crc$sm_status)
-levels(crc$smoke) <- c(1,2,0,3,4,9999,9999)
-crc$smoke<- fct_relevel(crc$smoke,"0")
+levels(crc$smoke) <- c(5,4,1,3,2,9999,9999)
+crc$smoke<- fct_relevel(crc$smoke,"1","2","3","4","5")
 tab(crc$smoke)
 # Snus
 crc["snus"] <- as.factor(crc$sn_status)
@@ -393,6 +497,11 @@ crc[is.na(crc$diabetesbehandling_d),"diabetesbehandling_d"] <- 0
 crc$diabetesbehandling_d <- as.factor(crc$diabetesbehandling_d)
 levels(crc$diabetesbehandling_d) <- c(0,1,9999,9999)
 dplyr::select(crc,diabetesbehandling_a:diabetesbehandling_d) %>% apply(2,tab)
+# Diabetes eller behandling variabel:
+crc["diabetes"] <- interaction(
+  crc$diabet, crc$diabetesbehandling_a, crc$diabetesbehandling_b,crc$diabetesbehandling_c,crc$diabetesbehandling_d)
+crc$diabetes <- drop.levels(crc$diabetes)
+levels(crc$diabetes) <- c(0,0,rep(1,8),0,rep(1,9),0,rep(1,3),0,9999)
 
 # 
 # Occupationl Physical activity
@@ -437,10 +546,26 @@ crc$g6_MONICA <- as.numeric(crc$g6_MONICA)
 # Combined variable MONICA and VIP:
 crc["g6_comb"] <- coalesce(crc$g6_vip, crc$g6_MONICA)
 
-#
+# utbild, sätt 5or till 1or
+crc$utbild <- as.factor(crc$utbild)
+levels(crc$utbild) <- c(1,2,3,4,1,1,9999)
+
+# ursprungsland
+crc$ursprungsland <- as.factor(crc$ursprungsland)
+levels(crc$ursprungsland) <- c(2,1,9999,9999)
+crc$ursprungsland <- relevel(crc$ursprungsland,ref="2")
+
+# maritqal status
+crc$civil <- as.factor(crc$civil)
+levels(crc$civil) <- c(2,1,3,4,9999,9999,9999,9999)
+crc$civil <- relevel(crc$civil,ref="1")
+
+#Birth year:
+crc["birthyear"] <- crc$qyear-crc$agef
+crc["birthyear5"] <- cut(crc$birthyear,breaks=c(0,1940,1950,1960,1970,2000),labels=c("<1940","1941-50","1951-60","1961-70",">1970"))
 #
 # Final remove all uncessesary variables:
-crc <- dplyr::select(crc, crc_id, crc, fall, measurement:dbt, uppfdat:g6_comb)
+crc <- dplyr::select(crc, crc_id, crc, fall, measurement:dbt, civil, utbild, ursprungsland, birthyear, birthyear5, uppfdat:diabetes)
 
 
 # MISSING VIP:
@@ -462,6 +587,27 @@ crc <- filter(crc,id!=crc[names(na.row[na.row>0.5]),"id"])
 # First measurement data: 
 crc1 <- filter(crc,measurement==1)
 ma1 <- filter(ma,measurement==1)
+
+# quantile variables
+crc1 <- transform(crc1, 
+          bmi5=ave(bmi, measurement, delproj, gender, FUN=function(x) cut(x, breaks=quantile(x, probs=seq(0,1,1/5),na.rm=T))),
+          midbp5=ave(midbp, measurement, delproj, gender, FUN=function(x) cut(x, breaks=quantile(x, probs=seq(0,1,1/5),na.rm=T))),
+          dbt5=ave(dbtt, measurement, delproj, gender, FUN=function(x) cut(x, breaks=quantile(x, probs=seq(0,1,1/5),na.rm=T))),
+          sbt5=ave(sbtt, measurement, delproj, gender, FUN=function(x) cut(x, breaks=quantile(x, probs=seq(0,1,1/5),na.rm=T))),
+          stg5=ave(stgt, measurement, delproj, gender,fasta, FUN=function(x) cut(x, breaks=quantile(x, probs=seq(0,1,1/5),na.rm=T))),
+          blods05=ave(blods0, measurement, delproj, gender,fasta, FUN=function(x) cut(x, breaks=quantile(x, probs=seq(0,1,1/5),na.rm=T))),
+          blods25=ave(blods2, measurement, delproj, gender,fasta, FUN=function(x) cut(x, breaks=quantile(x, probs=seq(0,1,1/5),na.rm=T))),
+          skol5=ave(skolt, measurement, delproj, gender,fasta, FUN=function(x) cut(x, breaks=quantile(x, probs=seq(0,1,1/5),na.rm=T))))
+
+#correct? YES!
+cc <- dplyr::select(crc1, bmi,bmi55,measurement,delproj,gender) %>% sample_n(10)
+crc["grouping"] <- drop.levels(interaction(crc$measurement,crc$gender, crc$delproj))
+s <- dplyr::select(crc,bmi,measurement,delproj,gender) %>% group_by(measurement,delproj,gender) %>% 
+  summarise(m = mean(bmi,na.rm=T), sd = sd(bmi,na.rm=T), 
+            q1=quantile(bmi,probs=seq(0,1,1/5),na.rm=T)[1], q2=quantile(bmi,probs=seq(0,1,1/5),na.rm=T)[2],   
+            q3=quantile(bmi,probs=seq(0,1,1/5),na.rm=T)[3], q4=quantile(bmi,probs=seq(0,1,1/5),na.rm=T)[4],
+            q5=quantile(bmi,probs=seq(0,1,1/5),na.rm=T)[5],q6=quantile(bmi,probs=seq(0,1,1/5),na.rm=T)[6])
+s
 ```
 
 # DESCRIPTIVES
