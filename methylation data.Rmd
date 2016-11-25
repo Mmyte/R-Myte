@@ -1,0 +1,128 @@
+---
+title: "Methylation sophia"
+author: "Robin Myte"
+date: "31 oktober 2016"
+output: html_document
+---
+
+
+##Importera Illumina methylation data
+
+```{r Import methylation data,echo=FALSE,message=FALSE}
+# Load required libraries
+library(ENmix)
+library(dplyr)
+library(tidyr)
+library(minfi)
+
+# set work directory
+setwd("/Volumes/ADATAHV100/dataUPPMAX/results")
+
+# create directory where IDAT files are
+basedir <- "/Volumes/ADATAHV100/dataUPPMAX/b2016315/private/methylation_101/OD-0771/OD-0771_160919_ResultReport/OD-0771_160919_IDAT"
+list.files(basedir)
+
+# Time the process
+nu <- Sys.time()
+
+# 1. Read sample sheet 
+#samplesheet <- read.csv("/Volumes/ADATAHV100/dataUPPMAX/results/samplesheet.csv")
+samplesheet <- read.csv("/Users/Myte/Documents/DATA-filer/Sophia early detection/samplesheet.csv")
+# create variable with position of IDAT files for each sample:
+samplesheet <- unite(samplesheet, col=Barcodesection, Sentrix.Barcode, Sample.Section, sep="_", remove=F) %>%
+               mutate(Basename = paste0(basedir,"/",Sentrix.Barcode,"/",Barcodesection),
+                      id = substr(Sample.ID,6,15))
+
+# 2. Import IDAT files: 
+#  took 20 minutes for 277 samples, 35 for extended
+nu <- Sys.time()
+rgset <- read.metharray.exp(target=samplesheet, extended=TRUE)
+# or Load RG-set data
+load("rgset.RData")
+load("rgsetExtended.RData")
+
+# 3. Quality check: keep outliers
+qc <- QCinfo(rgset, outlier=F, distplot=F)
+# QC plots
+plotCtrl(rgset)
+#save qc data
+save(qc, file="qc.RData") 
+
+# 4. ENmix preprocessing: 
+mset <- preprocessENmix(rgset, bgParaEst="oob", QCinfo=qc, exQCsample	=TRUE, exQCcpg=TRUE , dyeCorr=TRUE, nCores=2)
+
+# 5. Inter-array normalization
+# remove low quality samples first, keep outliers:
+mset <- QCfilter(mset, qcinfo=qc, outlier=F)
+# do quantile normalization
+mdat <- normalize.quantile.450k(mset, method="quantile1")
+
+# 6. Probe-type bias adjustment with rcp method
+beta <- rcp(mdat)
+# BMIQ method:
+#beta <- bmiq.mc(mdat,nCores=2) 
+
+# Create data frame
+beta <- t(beta)
+beta1 <- data.frame(Barcodesection=rownames(beta), beta)
+
+# 7. Get celltype proportions data
+# convert EPIC array to 450k
+blood450 <- convertArray(object=rgset, outType="IlluminaHumanMethylation450k")
+#run houseman celltype estimation
+celltypes <- estimateCellCounts(blood450, compositeCellType = "Blood",
+                                processMethod = "auto", probeSelect = "auto")
+#merge with betas
+celltype <- data.frame(Barcodesection=rownames(celltypes), celltypes)
+beta1 <- merge(beta1, celltype, by="Barcodesection")
+
+# 8. Get batch info
+CpG.batches <- read.csv("~/Documents/DATA-filer/Sophiaearlydetection/methylation/CpG batches.csv", 
+                        sep=";", stringsAsFactors=FALSE)
+beta1 <- merge(beta1, CpG.batches, by="Barcodesection")
+
+# 9. save data frame in desired format, here as .RData 
+save(beta1, file="enmix_beta_dataframe.RData")
+
+# Stop timer
+Sys.time()-nu
+
+
+```
+
+```{r plot distributions}
+#Load betas
+load("/Users/Myte/Documents/DATA-filer/Sophia early detection/methylation/enmix_beta_dataframe.RData")
+
+# ENmix function for fast and accurate distribution plot
+multifreqpoly(beta, main="Data distribution")
+
+```
+
+
+
+```{r Example 1 ENmix}
+library(ENmix)
+#read in data
+sheet <- read.450k.sheet(file.path(find.package("minfiData"),
+     "extdata"), pattern = "csv$")
+rgSet <- read.450k.exp(targets = sheet, extended = TRUE)
+ #for EPIC array use read.metharray.sheet and read.metharray.exp instead
+#QC info
+qc<-QCinfo(rgSet)
+#background correction and dye bias correction
+#if provide qc info, the low quality samples and probes will be excluded b
+mdat<-preprocessENmix(rgSet, bgParaEst="oob", dyeCorr=TRUE, QCinfo=qc, nCores=6)
+#low quality samples and probes can also be excluded after background corr
+#mdat <- QCfilter(mdat,qcinfo=qc,outlier=TRUE)
+#inter-array normalization
+mdat<-normalize.quantile.450k(mdat, method="quantile1")
+#probe-type bias adjustment
+beta<-rcp(mdat)
+
+```
+
+
+
+
+
