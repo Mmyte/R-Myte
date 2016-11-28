@@ -36,7 +36,7 @@ library(circlize)
 library(RColorBrewer)
 library(minfi)
 library(MuMIn)
-
+library(cowplot)
 
 # Functions 
 source('~/Dropbox/Documents/JOBB ONKO/R/Kaplan Meier.R')
@@ -308,11 +308,15 @@ names(d3) <- c(names(d),names(d),"diff","Change")
 d1 <- d3[,c(1:6,13,14)]
 d2 <- d3[,c(7:12,13,14)]
 d3 <- rbind(d1,d2)
-icc1 <- data.frame(variable=levels(d3$variable),icc=icc1)
+
 #Fix factor levels
 levels(d3$variable) <- gsub("XX","-",levels(d3$variable))
 levels(d3$variable) <- gsub("_"," ",levels(d3$variable))
 levels(d3$Sex) <- c("Men","Women") 
+
+names(icc1) <- levels(d3$variable)
+levnames <- paste0(names(icc1) ,", ", sprintf("ICC: %.2f", icc1[names(icc1)]))
+levels(d3$variable) <- levnames
 
 # plot   
 ggplot(d3, aes(y=value,x=age,group=person,color=Change)) + 
@@ -324,7 +328,6 @@ ggplot(d3, aes(y=value,x=age,group=person,color=Change)) +
 # groups
 #dat1 %>% dplyr::select(mets2, bmi2, stg2, ht2, gluc2,person,age) %>% melt(id=c("person","age")) %>% na.omit() %>%
 #  ggplot(aes(y=value,x=age,group=person,fill=value)) + geom_point() + geom_line() + facet_wrap(~variable) 
-
 
 
 ```
@@ -778,13 +781,16 @@ for(i in 1:nrow(outliers)){
   dat.lme[dat.lme$id==outliers[i,"id"], as.character(outliers[i,"variable"])] <- NA
 }
 
-#Plot ICC:
-dplyr::select(dat.lme, person, provnr ,one_of(as.character(mets.sign$var))) %>% 
-  melt(id=c("person","provnr")) %>% 
+#Plot ICC: doesnt get better if scale
+lev <- names(sort(icc.mets[as.character(mets.sign$var)],decreasing=T))
+levnames <- paste0(lev,", ", sprintf("ICC: %.2f",icc.mets[lev]))
+dplyr::select(dat.lme, person, provnr ,one_of(as.character(mets.sign$var))) %>%  
+  melt(id=c("person","provnr")) %>%
+  mutate(variable=fct_relevel(variable, lev), variable=factor(variable, labels=levnames)) %>%
   ggplot(aes(y=value, x=as.factor(person),color=as.factor(provnr))) +
   geom_point(size=0.8) + 
   geom_line(aes(group=as.factor(person)),color="black",alpha=0.8) + 
-  facet_wrap(~variable,scales="free") + theme(axis.text.x=element_blank(),axis.ticks.x=element_blank())
+  facet_wrap(~variable) + theme(axis.text.x=element_blank(),axis.ticks.x=element_blank())
 
 ```
 
@@ -1811,7 +1817,11 @@ load("~/Documents/DATA-filer/Sophiaearlydetection/methylation/beta_with_celltype
 
 # Load list of CpGs close to or within MetS significant proteins:
 mets.cpg <- read.csv("~/Documents/DATA-filer/Sophiaearlydetection/methylation/MetS CpGs.csv", stringsAsFactors=FALSE)
-mets.cpg <- dplyr::rename(mets.cpg,var=IlmnID)
+mets.cpg <- dplyr::rename(mets.cpg, var=IlmnID)
+
+# Load list of batch data
+batches <- read.csv("~/Documents/DATA-filer/Sophiaearlydetection/methylation/CpG batches.csv", sep=";", stringsAsFactors=FALSE)
+batches <- dplyr::rename(batches, id=Sample,Case_set=Case.set,Chip=Chip..,Analysis=Analysis..)
 
 # Get celltypes data
 #load("~/Documents/DATA-filer/Sophiaearlydetection/methylation/celltypes.RData")
@@ -1822,22 +1832,24 @@ mets.cpg <- dplyr::rename(mets.cpg,var=IlmnID)
 # get CpGs in significant proteins genes
 cpg1 <- mets.cpg$var
 
-#merge with olink/phen data frame:
+#merge with olink/phen data frame and baatches:
 beta1 <- dplyr::select(beta1, id, Barcodesection, CD8T, CD4T, NK , Bcell, Gran, Mono, one_of(cpg1))
 cpg1 <- cpg1[!(cpg1 %in% c("cg04199023", "cg10588688", "cg24421822", "cg25862752"))] # remove missing cpgs from list
 mets.cpg <- mets.cpg[!(mets.cpg$var %in% c("cg04199023", "cg10588688", "cg24421822", "cg25862752")),]
 
 sum(beta1$id %in% dat1$id)
 sum(beta1$id %in% phen$id)
+sum(beta1$id %in% batches$id)
+sum(batches$id %in% phen$id)
 
-dat1cpg <- merge(phen, beta1, by="id")
+dat1cpg <- merge(batches, beta1, by="id")
+dat1cpg <- merge(dat1cpg, phen, by="id")
 dat1cpg <- unite(dat1cpg,"person", caseset, casecontrol, remove=FALSE)
 
 
 ```
 
 Histograms:
-
 
 ```{r histograms CpG,echo=F}
 dplyr::select(dat1cpg, one_of(cpg1[1:221])) %>% melt() %>%
@@ -1884,52 +1896,189 @@ for(i in var){
 round(icc2,2)
 
 #Plot ICC:
+lev <- names(sort(icc2,decreasing=T))
+levnames <- paste0(lev,", ", sprintf("ICC: %.2f",icc2[lev]))
 dplyr::select(dat1cpg, person, provnr,CD8T, CD4T, NK , Bcell, Gran, Mono) %>% 
   #filter(Mono<0.19) %>%
   melt(id=c("person","provnr")) %>% 
+  mutate(variable=fct_relevel(variable, lev), variable=factor(variable, labels=levnames)) %>%
   ggplot(aes(y=value, x=as.factor(person),color=as.factor(provnr))) +
   geom_point(size=0.8) + 
   geom_line(aes(group=as.factor(person)),color="black",alpha=0.8) + 
-  facet_wrap(~variable,scales="free") + theme(axis.text.x=element_blank(),axis.ticks.x=element_blank())
+  facet_wrap(~variable, scales="free") + theme(axis.text.x=element_blank(),axis.ticks.x=element_blank())
 
 ```
 
 
-Heatmap of levels
+Heatmap of levels + batch effects check
 Rows are variables, columns are observations. Observations are sorted according to case. Gray squares indicate missing observations.
 
 ```{r 1 heatmap CpGs, fig.width=12, fig.height=8, message=FALSE, warnings=FALSE}
+load("~/Dropbox/Documents/JOBB ONKO/Sophia Early Detection/dat1cpg MED batch.RData")
+
+cpg1 <- cpg1[!(cpg1 %in% c("cg04199023", "cg10588688", "cg24421822", "cg25862752"))] # remove missing cpgs from list
 var <- cpg1
 
 # Data fix  8*8 inch pic
-dat11 <- dplyr::select(dat1cpg, provnr, casecontrol, person, one_of(var))  %>% 
-          mutate(case=factor(casecontrol,labels=c("control","case")),
-                 case.provnr=interaction(case,provnr), cpnum=as.numeric(case.provnr)) %>% 
-          unite(person_case_provnr,case.provnr, person, sep=" ",remove=F)
+dat11 <- dplyr::select(dat1cpg, provnr, casecontrol, person, Case_set, Chip, Analysis, BC_Plate, cg18478105:cg12623625)  %>% 
+          mutate(case=factor(casecontrol,labels=c("control","case")), 
+                 case.provnr=interaction(case,provnr), cpnum=as.numeric(case.provnr))
 
-# remove NAs
-con <- dplyr::select(dat11, one_of(var), person_case_provnr,cpnum) %>% arrange(cpnum) %>% dplyr::select(-cpnum)
+#Heatmap of factor-levels: (top)
+gdat <- dplyr::select(dat11, person, Case_set, Chip, Analysis, BC_Plate) %>% 
+  arrange(BC_Plate, Analysis, Chip, Case_set) %>% 
+  mutate(order=1:nrow(dat11),BC_Plate=as.factor(BC_Plate), Case_set=as.factor(Case_set), Chip=as.factor(Chip), Analysis=as.factor(Analysis),
+         variable1=rep("BC_Plate", nrow(dat11)), variable2=rep("Case_set", nrow(dat11)),
+         variable3=rep("Chip", nrow(dat11)), variable4=rep("Analysis", nrow(dat11)))
+# plots
+g1 <- ggplot(gdat, aes(y=variable1, x=order)) + geom_tile(aes(fill = BC_Plate, color=BC_Plate)) +
+    theme(line = element_blank(),
+        title = element_blank(),
+        legend.position="none",
+        axis.title.x=element_blank(), axis.text.x=element_blank(),
+        plot.margin=unit(c(0,0,-0.15,0), "cm"))
+g2 <- ggplot(gdat, aes(y=variable2, x=order)) + geom_tile(aes(fill = Analysis, color=Analysis)) +
+    theme(line = element_blank(),
+        title = element_blank(),
+        legend.position="none",
+        axis.title.x=element_blank(), axis.text.x=element_blank(),
+        plot.margin=unit(c(0,0,-0.15,0), "cm"))
+g3 <- ggplot(gdat, aes(y=variable3, x=order)) + geom_tile(aes(fill = Chip, color=Chip)) +
+    theme(line = element_blank(),
+        title = element_blank(),
+        legend.position="none",
+        axis.title.x=element_blank(), axis.text.x=element_blank(),
+        plot.margin=unit(c(0,0,-0.15,0), "cm"))
+g4 <- ggplot(gdat, aes(y=variable4, x=order)) + geom_tile(aes(fill = Case_set, color=Case_set)) +
+    theme(line = element_blank(),
+        title = element_blank(),
+        legend.position="none",
+        axis.title.x=element_blank(), axis.text.x=element_blank(),
+        plot.margin=unit(c(0,0,-0.15,0), "cm"))
 
-# Sort columns after amount of NA
-n <- apply(con[,var],2,function(x) sum(is.na(x)))
-n <- sort(n,decreasing=F)
-n <- names(n)
+#Heatmap of CpG: (bottom)
+dat11[,var] <- scale(dat11[,var])
+gdat <- dplyr::select(dat11, person, Case_set, Chip, Analysis, BC_Plate, one_of(var)) %>% 
+  arrange(BC_Plate, Analysis, Chip, Case_set) %>% 
+  mutate(order=1:nrow(dat11)) %>% 
+  melt(id=c("person","order","BC_Plate", "Analysis", "Chip", "Case_set"))
+         
+gBot <-  ggplot(gdat, aes(y=variable, x=order)) + 
+  geom_tile(aes(fill = value, color=value)) +
+  #scale_fill_gradient(low = "dodgerblue4", high = "gold", na.value="gray") +
+  #scale_color_gradient(low = "dodgerblue4", high = "gold", na.value="gray") +
+  scale_fill_gradient2(low = "dodgerblue4", mid="gray95", high = "firebrick4", na.value="gray") + 
+  scale_color_gradient2(low = "dodgerblue4", mid="gray95", high = "firebrick4", na.value="gray") + 
+  theme(legend.position="none",
+        line = element_blank(),
+         axis.text.x=element_blank(), axis.ticks.x=element_blank(),
+         axis.text.y=element_blank(), axis.ticks.y=element_blank(),
+          plot.margin=unit(c(0.05,0,0,0), "cm")) +
+  ylab("CpG sites") + xlab("Participants")
 
-# Heatmap 
-# get rownames
-df <- melt(con,id.vars="person_case_provnr")
-df$person_case_provnr <- factor(df$person_case_provnr,levels=as.character(con$person_case_provnr))
-df$variable <- factor(df$variable,levels=n)
+# Merge plots together with cowplot
+plot_grid(g1,g2,g3,g4, gBot, nrow = 5, ncol=1,  align = "v", rel_heights = c(1,1,1,1,16))
 
-ggplot(df, aes(y = variable, x = person_case_provnr)) + 
-   geom_tile(aes(fill = value), colour = "white") + 
-   scale_fill_gradient(low = "dodgerblue4", high = "gold", na.value="gray") +
-   theme(axis.text.x = element_text(angle = 55, hjust = 1))+
-   geom_vline(xintercept=which(levels(df$person_case_provnr) %in% c("control.1 22_0", "case.1 36_1", "control.2 48_0")) + c(0.5, 0.5, 0.5), col="black")
-   
 
+ggdraw() +
+  draw_plot(plot.iris1, 0, .5, 1, .5) +
+  draw_plot(plot.iris2, 0, 0, 1, .5) +
+  draw_plot_label(c("A", "B"), c(0, 0), c(1, 0.5), size = 15)
 
 ```
+
+
+The same but with PCAs
+```{r 1 heatmap PCA, fig.width=12, fig.height=8, message=FALSE, warnings=FALSE}
+load("~/Dropbox/Documents/JOBB ONKO/Sophia Early Detection/dat1cpg MED batch.RData")
+
+cpg1 <- cpg1[!(cpg1 %in% c("cg04199023", "cg10588688", "cg24421822", "cg25862752"))] # remove missing cpgs from list
+var <- cpg1
+
+# Data fix  8*8 inch pic
+dat11 <- dplyr::select(dat1cpg, provnr, casecontrol, person, Case_set, Chip, Analysis, BC_Plate, 7:851200)  %>% 
+          mutate(case=factor(casecontrol,labels=c("control","case")), 
+                 case.provnr=interaction(case,provnr), cpnum=as.numeric(case.provnr))
+
+
+
+#PCA: 
+pca <- prcomp(dat1cpg[,cpg1], center = TRUE, scale. = TRUE) 
+summary(pca)
+
+# Plot variance and rotation
+plot(pca,type="l")
+fviz_pca_var(pca,col.circle="black")+theme_bw()+xlim(-1,1)+ylim(-1,1)
+
+#Ad PCs as variables
+pc <- colnames(pca$x[,1:50])
+dat1cpg[,colnames(pca$x[,1:50])] <- pca$x[,1:50]
+
+
+#Heatmap of factor-levels: (top)
+gdat <- dplyr::select(dat11, person, Case_set, Chip, Analysis, BC_Plate) %>% 
+  arrange(BC_Plate, Analysis, Chip, Case_set) %>% 
+  mutate(order=1:nrow(dat11),BC_Plate=as.factor(BC_Plate), Case_set=as.factor(Case_set), Chip=as.factor(Chip), Analysis=as.factor(Analysis),
+         variable1=rep("BC_Plate", nrow(dat11)), variable2=rep("Case_set", nrow(dat11)),
+         variable3=rep("Chip", nrow(dat11)), variable4=rep("Analysis", nrow(dat11)))
+# plots
+g1 <- ggplot(gdat, aes(y=variable1, x=order)) + geom_tile(aes(fill = BC_Plate, color=BC_Plate)) +
+    theme(line = element_blank(),
+        title = element_blank(),
+        legend.position="none",
+        axis.title.x=element_blank(), axis.text.x=element_blank(),
+        plot.margin=unit(c(0,0,-0.15,0), "cm"))
+g2 <- ggplot(gdat, aes(y=variable2, x=order)) + geom_tile(aes(fill = Analysis, color=Analysis)) +
+    theme(line = element_blank(),
+        title = element_blank(),
+        legend.position="none",
+        axis.title.x=element_blank(), axis.text.x=element_blank(),
+        plot.margin=unit(c(0,0,-0.15,0), "cm"))
+g3 <- ggplot(gdat, aes(y=variable3, x=order)) + geom_tile(aes(fill = Chip, color=Chip)) +
+    theme(line = element_blank(),
+        title = element_blank(),
+        legend.position="none",
+        axis.title.x=element_blank(), axis.text.x=element_blank(),
+        plot.margin=unit(c(0,0,-0.15,0), "cm"))
+g4 <- ggplot(gdat, aes(y=variable4, x=order)) + geom_tile(aes(fill = Case_set, color=Case_set)) +
+    theme(line = element_blank(),
+        title = element_blank(),
+        legend.position="none",
+        axis.title.x=element_blank(), axis.text.x=element_blank(),
+        plot.margin=unit(c(0,0,-0.15,0), "cm"))
+
+#Heatmap of CpG: (bottom)
+dat11[,var] <- scale(dat11[,var])
+gdat <- dplyr::select(dat11, person, Case_set, Chip, Analysis, BC_Plate, one_of(var)) %>% 
+  arrange(BC_Plate, Analysis, Chip, Case_set) %>% 
+  mutate(order=1:nrow(dat11)) %>% 
+  melt(id=c("person","order","BC_Plate", "Analysis", "Chip", "Case_set"))
+         
+gBot <-  ggplot(gdat, aes(y=variable, x=order)) + 
+  geom_tile(aes(fill = value, color=value)) +
+  #scale_fill_gradient(low = "dodgerblue4", high = "gold", na.value="gray") +
+  #scale_color_gradient(low = "dodgerblue4", high = "gold", na.value="gray") +
+  scale_fill_gradient2(low = "dodgerblue4", mid="gray95", high = "firebrick4", na.value="gray") + 
+  scale_color_gradient2(low = "dodgerblue4", mid="gray95", high = "firebrick4", na.value="gray") + 
+  theme(legend.position="none",
+        line = element_blank(),
+         axis.text.x=element_blank(), axis.ticks.x=element_blank(),
+         axis.text.y=element_blank(), axis.ticks.y=element_blank(),
+          plot.margin=unit(c(0.05,0,0,0), "cm")) +
+  ylab("CpG sites") + xlab("Participants")
+
+# Merge plots together with cowplot
+plot_grid(g1,g2,g3,g4, gBot, nrow = 5, ncol=1,  align = "v", rel_heights = c(1,1,1,1,16))
+
+
+ggdraw() +
+  draw_plot(plot.iris1, 0, .5, 1, .5) +
+  draw_plot(plot.iris2, 0, 0, 1, .5) +
+  draw_plot_label(c("A", "B"), c(0, 0), c(1, 0.5), size = 15)
+
+```
+
+
 
 ##Cluster analysis:
 
@@ -2008,21 +2157,21 @@ Principle component regression
 #PCA: 
 pca <- prcomp(dat1cpg[,cpg1], center = TRUE, scale. = TRUE) 
 summary(pca)
+
+# Plot variance and rotation
 plot(pca,type="l")
 fviz_pca_var(pca,col.circle="black")+theme_bw()+xlim(-1,1)+ylim(-1,1)
 
-pca1 <- data.frame(bmi3=dat1cpg[,"bmi3"],sex=dat1cpg$gender,age4=dat1cpg$age4,pca$x[,1:5])
-
 #Plot loadings
-melted <- data.frame(var=mets.cpg$var, var.group=mets.cpg$OLINK.Protein_name, pca$rotation[,1:10])
-melted <- melt(melted, id=c("var","var.group"))
-melted <- mutate(melted, index=rep(1:471, 10))
-
+melted <- data.frame(var=mets.cpg$var, Protein=mets.cpg$OLINK.Protein_name, pca$rotation[,1:5])
+melted <- melt(melted, id=c("var","Protein"))
+melted <- mutate(melted, index=rep(1:471, 5))
 ggplot(data=melted) +
-  geom_bar(aes(x=index, y=value, fill=var.group), stat="identity") +
-  facet_wrap(~variable)
+  geom_bar(aes(x=index, y=value, fill=Protein), stat="identity") +
+  facet_wrap(~variable) +xlab("") + ylab("Loadings")
 
-# Plot
+# Plot groupings
+pca1 <- data.frame(bmi3=dat1cpg[,"bmi3"],sex=dat1cpg$gender,age4=dat1cpg$age4,pca$x[,1:5])
 scatterplotMatrix(~PC1+PC2+PC3+PC4+PC5|bmi3, data=pca1,main="PCA",by.groups=F,smoother=F,reg.line=F,col=c("red","blue","green","purple"),pch=c(18,20,22,24))
 
 #Ad PCs as variables
@@ -2134,13 +2283,13 @@ for(i in var1){
     r2cpg[j,8] <- r[1]
     r2cpg[j,9] <- r[2]
  # MODELs MetS
-    g1 <- lme(var~metsz+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
+    g1 <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+metsz+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
-    g2 <- lme(var~mets2+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
+    g2 <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+mets2+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
-    g3 <- lme(var~bmiz+stgz+midbpz+blods0z+skolz+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
+    g3 <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+bmiz+stgz+midbpz+blods0z+skolz+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
-    g4 <- lme(var~bmi2+stg2+ht2+gluc2+skol2+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
+    g4 <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+bmi2+stg2+ht2+gluc2+skol2+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.exclude,method="ML",data=dat.lme)
     #ICC
     varests <- as.numeric(VarCorr(g1)[c(1,2)]) 
@@ -2148,24 +2297,24 @@ for(i in var1){
     #Resiudals:
     res.proteinscpg[,i] <- residuals(g1, type="pearson")
     # P-values
-    mod.mets1cpg[j,1] <- anova(g1)$`p-value`[2]
-    mod.mets1cpg[j,2] <- anova(g2)$`p-value`[2]
-    mod.mets1cpg[j,3:7] <- anova(g3)$`p-value`[2:6]
-    mod.mets1cpg[j,8:12] <- anova(g4)$`p-value`[2:6]
+    mod.mets1cpg[j,1] <- anova(g1)$`p-value`[8]
+    mod.mets1cpg[j,2] <- anova(g2)$`p-value`[8]
+    mod.mets1cpg[j,3:7] <- anova(g3)$`p-value`[8:12]
+    mod.mets1cpg[j,8:12] <- anova(g4)$`p-value`[8:12]
 
     # Coefficients
-    coef.mets1cpg[j,1] <- summary(g1)$tTable[2,1]
-    coef.mets1cpg[j,2] <- summary(g2)$tTable[2,1]
-    coef.mets1cpg[j,3:7] <- summary(g3)$tTable[2:6,1]
-    coef.mets1cpg[j,8:12] <- summary(g4)$tTable[2:6,1]
+    coef.mets1cpg[j,1] <- summary(g1)$tTable[8,1]
+    coef.mets1cpg[j,2] <- summary(g2)$tTable[8,1]
+    coef.mets1cpg[j,3:7] <- summary(g3)$tTable[8:12,1]
+    coef.mets1cpg[j,8:12] <- summary(g4)$tTable[8:12,1]
 
     # sd
-    sd.mets1cpg[j,1] <- summary(g1)$tTable[2,2]
-    sd.mets1cpg[j,2] <- summary(g2)$tTable[2,2]
-    sd.mets1cpg[j,3:7] <- summary(g3)$tTable[2:6,2]
-    sd.mets1cpg[j,8:12] <- summary(g4)$tTable[2:6,2]
+    sd.mets1cpg[j,1] <- summary(g1)$tTable[8,2]
+    sd.mets1cpg[j,2] <- summary(g2)$tTable[8,2]
+    sd.mets1cpg[j,3:7] <- summary(g3)$tTable[8:12,2]
+    sd.mets1cpg[j,8:12] <- summary(g4)$tTable[8:12,2]
     #Rsq mets
-    g1 <- lme(var~metsz+CD8T+CD4T+NK+Bcell+Gran+Mono+casecontrol+age+gender+phys+smoke,
+    g1 <- lme(var~CD8T+CD4T+NK+Bcell+Gran+Mono+metsz+casecontrol+age+gender+phys+smoke,
               random = ~1|person, na.action=na.omit,method="ML",data=dat.lme)
     r <-  r.squaredGLMM(g1)
     r2cpg[j,4] <- r[1]
@@ -2202,22 +2351,28 @@ mets.signcpg
 
 heatmap of p-values:
 ```{r}
-gdat <- data.frame(var=rownames(mod.mets1cpg),mod.mets1cpg)
+# Data fix
+gdat <- data.frame(var=rownames(mod.mets1cpg), mod.mets1cpg, mod1cpg) %>% 
+        dplyr::select(var,Age, Sex, Case,Physical.activity, Smoking,
+                      MetS_score, BMI_score,Triglycerices_score,MidBP_score,P.glucose_score,Cholesterol_score)
+                     # MetS_groups,BMI_groups,Triglycerices_groups,Hypertension,Glucose_groups,Cholesterol_groups)
 gdat <- gdat %>% melt(id="var")
 gdat$var <- fct_relevel(gdat$var, pc)
 gdat$value4 <- cut(gdat$value, breaks=c(0,0.001,0.05,1), labels=c("<0.001","<0.05"," "))
+gdat$variable <- fct_rev(gdat$variable)
   
+# Plot continous tiles
 ggplot(gdat,aes(x = var, y = variable)) + 
    geom_tile(aes(fill = value), colour = "white") + 
     scale_fill_gradientn(values=c(1,0.001,0), colors=c("white","orange","red"),trans="log",
     breaks = c(0, 0.001, 0.05, 1))+
    theme(axis.text.x = element_text(angle = 55, hjust = 1))
 
-#discrete tiles:
+# Plot discrete tiles:
 ggplot(gdat,aes(x = var, y = variable)) + 
    geom_tile(aes(fill = value4)) + 
-   scale_fill_manual(values=c("red","orange","white"))+
-   theme(axis.text.x = element_text(angle = 65, hjust = 1))+
+   scale_fill_manual(values=c("red","orange","white"), guide=guide_legend(title = "P-value"))+
+   theme(axis.text.x = element_text(angle = 65, hjust = 1))
   
 
 
@@ -2430,6 +2585,14 @@ mets.signcpg <- mutate(mets.bh2,sum.sign=rowSums(mets.bh2[,2:8])) %>% filter(sum
 mets.signcpg <- mets.signcpg[order(mets.signcpg$var),]
 mets.signcpg <- merge(mets.signcpg, mets.cpg[mets.cpg$var %in% mets.signcpg$var,], by="var")
 mets.signcpg
+
+#Only one significant cpg
+ggplot(dat1cpg, aes(x=person,y=cg02220196, color=as.factor(provnr))) + 
+  geom_point() + 
+  geom_line(aes(group=person), col="black",alpha=0.8) + ylim(c(0,0.1))
+#
+ggplot(dat1cpg, aes(x=skolz,y=cg02220196, color=as.factor(provnr))) + geom_point() + geom_smooth(method="lm") #+ ylim(c(0,1)) 
+
 
 write.xlsx(mets.sign, file ="mets sign.xlsx",sheetName = "TestSheet", row.names = T)
 
@@ -2766,7 +2929,7 @@ circos.clear()
 
 
 
-#Correlations between CpG and markers 
+#Correlations between CpG and protein markers 
 
 Heatmaps
 ```{r correlations heatmaps,echo=F}
@@ -2783,36 +2946,40 @@ manyna1 <- names(na1[na1>=0.5])
 # Remove TRAIL because it is the same as TNFSF10
 prot <- dplyr::select(dat.11,-one_of(c(manyna1)),-TRAIL) %>% names()
 cor1 <- cor(dat1[,prot],method="spearman",use="pairwise.complete.obs")
-
-# Partial correlations: 
-cor1 <- cor(res.proteins[,-161],method="spearman",use="pairwise.complete.obs")
-
 # Heatmap 2 : 9*9 inches works good
 heat <- t(as.matrix(cor1))
 mydist=function(c) {dist(c,method="euclidian")}
 myclust <- function(x) hclust(x, method="average")
-
 #heatmap.2(heat,col=bluered, trace="none", distfun=dist.pear, hclustfun=hclust.ave)
 heatmap.2(heat, dendrogram = "col",
           distfun = mydist,
           hclustfun = myclust,
-          trace="none", cexRow=0.3, cexCol = 0.3,
+          trace="none", cexRow=0.2, cexCol = 0.2,
+          col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
+
+# Partial correlations: 
+cor1 <- cor(res.proteins[,-161],method="spearman",use="pairwise.complete.obs")
+# Heatmap 2 : 9*9 inches works good
+heat <- t(as.matrix(cor1))
+mydist=function(c) {dist(c,method="euclidian")}
+myclust <- function(x) hclust(x, method="average")
+#heatmap.2(heat,col=bluered, trace="none", distfun=dist.pear, hclustfun=hclust.ave)
+heatmap.2(heat, dendrogram = "col",
+          distfun = mydist,
+          hclustfun = myclust,
+          trace="none", cexRow=0.2, cexCol = 0.2,
           col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
 
 
 # CpG correlations:
+
 # Raw correlations
 cor1 <- cor(dat1cpg[,cpg1],method="spearman",use="pairwise.complete.obs")
-
-# Partial correlations: 
-cor1 <- cor(res.proteinscpg[,-472],method="spearman",use="pairwise.complete.obs")
-
 #Grouping
 fcol <- as.factor(mets.cpg$OLINK.Protein_name)
 levels(fcol) <- scales::hue_pal()(length(levels(fcol)))
 fcol <- as.character(fcol)
-
-# Heatmap 2 : 8*10 inches works good
+# Heatmap 2 : 9*9 inches works good
 heat <- t(as.matrix(cor1))
 mydist=function(c) {dist(c,method="euclidian")}
 myclust <- function(x) hclust(x, method="average")
@@ -2824,7 +2991,30 @@ heatmap.2(heat, dendrogram = "col",
           trace="none",
           ColSideColors=fcol,
           col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
+legend("topright", title = " ", 
+       legend = levels(as.factor(mets.cpg$OLINK.Protein_name)),
+       fill= levels(as.factor(fcol)),
+       border=FALSE, bty="n", y.intersp = 1, cex=0.8)
 
+
+# Partial correlations: 
+cor1 <- cor(res.proteinscpg[,-472],method="spearman",use="pairwise.complete.obs")
+#Grouping
+fcol <- as.factor(mets.cpg$OLINK.Protein_name)
+levels(fcol) <- scales::hue_pal()(length(levels(fcol)))
+fcol <- as.character(fcol)
+# Heatmap 2 : 9*9 inches works good
+heat <- t(as.matrix(cor1))
+mydist=function(c) {dist(c,method="euclidian")}
+myclust <- function(x) hclust(x, method="average")
+#heatmap.2(heat,col=bluered, trace="none", distfun=dist.pear, hclustfun=hclust.ave)
+heatmap.2(heat, dendrogram = "col",
+           labRow = FALSE, labCol = FALSE,
+          distfun = mydist,
+          hclustfun = myclust,
+          trace="none",
+          ColSideColors=fcol,
+          col=bluered(24),main="",margins=c(10,12),srtCol=55,key.title="Color key",key.xlab="Speaman's correlation")
 legend("topright", title = " ", 
        legend = levels(as.factor(mets.cpg$OLINK.Protein_name)),
        fill= levels(as.factor(fcol)),
@@ -2933,7 +3123,7 @@ panel.hist <- function(x, ...)
 
 #plot with pairs, 9*10 inch
 #data = data.frame with numeric variables
-pairs(rdata1[,c("SCAMP3", "TXLNA","STAMPB","SIRT2","AXIN1", "LYN", "ABL1","LAP.TGF-beta-1")], diag.panel = panel.hist, upper.panel = panel.smooth,lower.panel = panel.cor,pch=19,cex=0.2,cex.labels=1.2, gap=0.5,col.smooth="black",col="gray")
+pairs(res.proteins[,as.character(mets.sign$var)], diag.panel = panel.hist, upper.panel = panel.smooth,lower.panel = panel.cor,pch=19,cex=0.2,cex.labels=1.2, gap=0.5,col.smooth="black",col="gray")
 
 
 ```
@@ -2943,13 +3133,12 @@ Circos correlations - signiricant in metS, proteins and CpGs:
 ```{r circos corelations significants METS,echo=F}
 #Data fix
 #Raw correlations:
-dim(dat1cpg[dat1cpg$id %in% dat1$id,])
-rdata1 <- merge(dat1cpg,dat1,by="id") %>% dplyr::select(one_of(as.character(mets.sign$var)), one_of(cpg1))
+#dim(dat1cpg[dat1cpg$id %in% dat1$id,])
+#rdata1 <- merge(dat1cpg,dat1,by="id") %>% dplyr::select(one_of(as.character(mets.sign$var)), one_of(cpg1))
 
 #Partial correlations
 dim(res.proteins[res.proteins$id %in% res.proteinscpg$id,])
 rdata1 <- merge(res.proteins,res.proteinscpg,by="id") %>% dplyr::select(one_of(as.character(mets.sign$var)), one_of(cpg1))
-
 
 # fix names
 names(rdata1) <- gsub('_', '-', names(rdata1))
@@ -2957,6 +3146,11 @@ names(rdata1) <- gsub('_', '-', names(rdata1))
 # Correlations prov 1
 str(rdata1)
 cor1 <- cor(rdata1, method="spearman", use="pairwise.complete.obs")
+#Fix names of cpg sites
+nn <- colnames(cor1)[13:length(colnames(cor1))]
+sum(nn==mets.cpg$var)
+colnames(cor1)[13:length(colnames(cor1))] <- paste0(mets.cpg$OLINK.Protein_name,".",mets.cpg$var)
+rownames(cor1)[13:length(rownames(cor1))] <- paste0(mets.cpg$OLINK.Protein_name,".",mets.cpg$var)
 # Melt
 cor11 <- melt(cor1);nrow(cor11)
 #Remove diagnonal in correlations matrix
@@ -2966,10 +3160,12 @@ sum(cor11[,3]<0 & abs(cor11[,3])>0.5)
 # R^2
 cor11[,3] <- cor11[,3]^2
 # Remove same correlations 
-cor11 <- cor11[!duplicated(cor11[,3]),]
+cor11 <- cor11[!duplicated(cor11[,3]),];nrow(cor11)
 # Only those above 0.2
-cor11[,4] <- ifelse(cor11[,3]>=0.2,1,0) 
+cor11[,4] <- ifelse(cor11[,3]>=0.10,1,0) 
+tab(cor11[,4])
 cor22 <- cor11[cor11[,4]==1,1:3]
+hist(cor22[,3])
 
 # Circos plot
 # Set grid colors
@@ -2980,8 +3176,9 @@ names(grid.col)=uniq
 
 #Highlight cols
 col <-  grid.col[match(cor22[,1],names(grid.col))]
-col[cor22[3] < 0.3] = "gray70"
-col[cor22[3] < 0.25] = "gray90"
+#col[cor22[3] < 0.3] = "gray80"
+col[cor22[3] < 0.20] = "gray90"
+
 
 
 # Scale correlations
@@ -3008,6 +3205,11 @@ circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y){
 
 # Clear graphics
 circos.clear() 
+
+dd <- cor11[order(cor11[,3], decreasing = T),]
+
+cor22["r2"] <- round(cor22[,3],2)
+write.xlsx(cor22, file ="cor222.xlsx",sheetName = "TestSheet", row.names = T)
 
 ```
 
